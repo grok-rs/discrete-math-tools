@@ -748,6 +748,68 @@
     </div>
 
     <script>
+        'use strict';
+
+        // ===================================================================
+        // CONFIGURATION & CONSTANTS
+        // ===================================================================
+
+        const CONFIG = {
+            MAX_SETS: 4,
+            ELEMENT_DISPLAY_THRESHOLD: 5,
+            ELEMENT_PREVIEW_COUNT: 3,
+            CANVAS_PADDING: 40,
+            LINE_WIDTH: {
+                default: 2,
+                diagonal: 1.5
+            },
+            FONT_SIZE: {
+                label: 'bold 18px sans-serif',
+                element: '14px sans-serif',
+                result: '16px sans-serif'
+            },
+            HATCHING_SPACING: 8,
+            DEBOUNCE_DELAY: 300,
+
+            COLORS: {
+                indigo: [99, 102, 241],
+                pink: [236, 72, 153],
+                green: [34, 197, 94],
+                orange: [251, 146, 60]
+            },
+
+            OPERATION_SYMBOLS: {
+                union: '∪',
+                intersection: '∩',
+                difference: '\\',
+                symmetric: '△',
+                complement: '\u0305'
+            },
+
+            OPERATION_COLORS: {
+                union: 'rgb(16, 185, 129)',
+                intersection: 'rgb(79, 70, 229)',
+                difference: 'rgb(220, 38, 38)',
+                symmetric: 'rgb(245, 124, 0)',
+                complement: 'rgb(124, 58, 237)'
+            },
+
+            STATUS_COLORS: {
+                success: '#22c55e',
+                error: '#ef4444',
+                info: '#6366f1',
+                warning: '#fb923c',
+                default: '#374151'
+            },
+
+            REGEX: {
+                setDefinition: /^([A-Za-z]+)\s*=\s*\{([^}]*)\}$/,
+                complement: /^([A-Za-z]+)['̅]$/,
+                binaryOperation: /^([A-Za-z]+)\s*([∪∩\\△]|U)\s*([A-Za-z]+)$/,
+                whitespace: /\s+/g
+            }
+        };
+
         // Translations
         const translations = {
             en: {
@@ -840,655 +902,1344 @@
             }
         };
 
-        // Current language
-        let currentLang = localStorage.getItem('language') || 'en';
+        // ===================================================================
+        // UTILITIES MODULE
+        // ===================================================================
 
-        // Set language function
-        function setLanguage(lang) {
-            currentLang = lang;
-            localStorage.setItem('language', lang);
+        const Utils = (() => {
+            /**
+             * Format RGB color array as CSS string
+             * @param {number[]} colorArray - RGB color array [r, g, b]
+             * @returns {string} CSS rgb() string
+             */
+            const formatRgbColor = (colorArray) => `rgb(${colorArray.join(',')})`;
 
-            // Update language buttons
-            document.getElementById('lang-en').classList.toggle('active', lang === 'en');
-            document.getElementById('lang-uk').classList.toggle('active', lang === 'uk');
-
-            // Update all elements with data-i18n attribute
-            document.querySelectorAll('[data-i18n]').forEach(element => {
-                const key = element.getAttribute('data-i18n');
-                if (translations[lang][key]) {
-                    if (element.id === 'examplesContent') {
-                        element.innerHTML = translations[lang][key];
-                    } else {
-                        element.textContent = translations[lang][key];
-                    }
+            /**
+             * Format element list for display
+             * @param {Array} elements - Array of elements
+             * @param {number} threshold - Max elements to show before summarizing
+             * @returns {string} Formatted element string
+             */
+            const formatElementList = (elements, threshold = CONFIG.ELEMENT_DISPLAY_THRESHOLD) => {
+                if (elements.length === 0) return '∅';
+                if (elements.length <= threshold) {
+                    return `{${elements.join(', ')}}`;
                 }
-            });
-
-            // Update placeholders
-            document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
-                const key = element.getAttribute('data-i18n-placeholder');
-                if (translations[lang][key]) {
-                    element.placeholder = translations[lang][key];
-                }
-            });
-
-            // Update status bar
-            setStatus(translations[lang].readyStatus, '#374151');
-
-            // Redraw diagram to update labels if needed
-            drawVennDiagram();
-        }
-
-        // Application state
-        const state = {
-            sets: [],
-            universalSet: new Set(), // U = union of all sets
-            resultElements: null,
-            resultDescription: '',
-            hoveredRegion: null,
-            currentOperation: null, // { type: 'union'|'intersection'|'difference'|'symmetric'|'complement', leftSet: index, rightSet: index }
-            diagramType: 'venn' // 'venn' or 'euler'
-        };
-
-        // Calculate universal set (union of all sets)
-        function updateUniversalSet() {
-            state.universalSet = new Set();
-            state.sets.forEach(set => {
-                set.elements.forEach(elem => {
-                    state.universalSet.add(elem);
-                });
-            });
-        }
-
-        const colors = [
-            [99, 102, 241],   // Indigo
-            [236, 72, 153],   // Pink
-            [34, 197, 94],    // Green
-            [251, 146, 60]    // Orange
-        ];
-
-        // Initialize with example sets
-        state.sets.push({
-            name: 'A',
-            elements: new Set(['1', '2', '3', '4']),
-            color: colors[0]
-        });
-
-        state.sets.push({
-            name: 'B',
-            elements: new Set(['3', '4', '5', '6']),
-            color: colors[1]
-        });
-
-        // Update universal set after initialization
-        updateUniversalSet();
-
-        // Canvas setup
-        const canvas = document.getElementById('vennCanvas');
-        const ctx = canvas.getContext('2d');
-        const tooltip = document.getElementById('tooltip');
-
-        function resizeCanvas() {
-            const container = canvas.parentElement;
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
-            drawVennDiagram();
-        }
-
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-
-        // Change diagram type
-        function changeDiagramType(type) {
-            state.diagramType = type;
-            drawVennDiagram();
-        }
-
-        // Update set list display
-        function updateSetList() {
-            const setList = document.getElementById('setList');
-            setList.innerHTML = '';
-
-            state.sets.forEach((set, index) => {
-                const li = document.createElement('li');
-                li.className = 'set-item';
-
-                const elementsArray = Array.from(set.elements);
-                const elementsStr = elementsArray.length <= 5
-                    ? `{${elementsArray.join(', ')}}`
-                    : `{${elementsArray.slice(0, 3).join(', ')}, ... (${elementsArray.length} total)}`;
-
-                li.innerHTML = `
-                    <div class="set-color" style="background: rgb(${set.color.join(',')})"></div>
-                    <div class="set-info" onclick="editSet(${index})" style="cursor: pointer;">
-                        <div class="set-name">${set.name} = ${elementsStr}</div>
-                    </div>
-                    <button class="btn-remove" onclick="removeSet(${index})">×</button>
-                `;
-                setList.appendChild(li);
-            });
-        }
-
-        function editSet(index) {
-            const set = state.sets[index];
-            const elementsArray = Array.from(set.elements);
-            const input = document.getElementById('inputField');
-            input.value = `${set.name}={${elementsArray.join(',')}}`;
-            input.focus();
-        }
-
-        updateSetList();
-
-        // Parse input
-        function executeInput() {
-            let input = document.getElementById('inputField').value.trim();
-            if (!input) return;
-
-            // Normalize whitespace: replace multiple spaces with single space
-            input = input.replace(/\s+/g, ' ');
-
-            // Try to parse as set definition: A={1,2,3}
-            const setDefMatch = input.match(/^([A-Za-z]+)\s*=\s*\{([^}]*)\}$/);
-            if (setDefMatch) {
-                const name = setDefMatch[1];
-                const elementsStr = setDefMatch[2].trim();
-                // Handle empty sets: filter out empty strings
-                const elements = elementsStr ? elementsStr.split(',').map(e => e.trim()).filter(e => e.length > 0) : [];
-
-                const existing = state.sets.find(s => s.name === name);
-                if (existing) {
-                    existing.elements = new Set(elements);
-                    setStatus(`${translations[currentLang].updatedSet} ${name}`, '#22c55e');
-                } else {
-                    if (state.sets.length >= 4) {
-                        setStatus(translations[currentLang].maxSets, '#ef4444');
-                        return;
-                    }
-                    state.sets.push({
-                        name: name,
-                        elements: new Set(elements),
-                        color: colors[state.sets.length]
-                    });
-                    setStatus(`${translations[currentLang].createdSet} ${name}`, '#22c55e');
-                }
-                document.getElementById('inputField').value = '';
-                state.currentOperation = null; // Clear operation when modifying sets
-                state.resultElements = null;
-                state.resultDescription = '';
-                updateUniversalSet();
-                updateSetList();
-                drawVennDiagram();
-                return;
-            }
-
-            // Try to parse as complement operation: A' or A̅ (with combining overline U+0305)
-            const complementMatch = input.match(/^([A-Za-z]+)['̅]$/);
-            if (complementMatch) {
-                const setName = complementMatch[1];
-                const setIndex = state.sets.findIndex(s => s.name === setName);
-
-                if (setIndex === -1) {
-                    setStatus(`${setName} ${translations[currentLang].setNotDefined} ${setName}={...}`, '#ef4444');
-                    return;
-                }
-
-                const targetSet = state.sets[setIndex];
-                // Calculate U \ A (universal set minus target set)
-                const result = new Set([...state.universalSet].filter(x => !targetSet.elements.has(x)));
-
-                state.resultElements = result;
-                state.resultDescription = `${setName}\u0305 = {${Array.from(result).join(', ')}}`;
-                state.currentOperation = { type: 'complement', leftSet: setIndex, rightSet: null };
-                setStatus(state.resultDescription, '#6366f1');
-                drawVennDiagram();
-                return;
-            }
-
-            // Try to parse as operation: A ∪ B, A ∩ B, etc.
-            const opMatch = input.match(/^([A-Za-z]+)\s*([∪∩\\△]|U)\s*([A-Za-z]+)$/);
-            if (opMatch) {
-                const left = opMatch[1];
-                const op = opMatch[2];
-                const right = opMatch[3];
-
-                const leftIndex = state.sets.findIndex(s => s.name === left);
-                const rightIndex = state.sets.findIndex(s => s.name === right);
-
-                if (leftIndex === -1 && rightIndex === -1) {
-                    setStatus(`${left}, ${right} ${translations[currentLang].setsNotDefined}`, '#ef4444');
-                    return;
-                } else if (leftIndex === -1) {
-                    setStatus(`${left} ${translations[currentLang].setNotDefined} ${left}={...}`, '#ef4444');
-                    return;
-                } else if (rightIndex === -1) {
-                    setStatus(`${right} ${translations[currentLang].setNotDefined} ${right}={...}`, '#ef4444');
-                    return;
-                }
-
-                const setA = state.sets[leftIndex];
-                const setB = state.sets[rightIndex];
-
-                let result;
-                let opName;
-                let opType;
-
-                if (op === '∪' || op === 'U') {
-                    result = new Set([...setA.elements, ...setB.elements]);
-                    opName = '∪';
-                    opType = 'union';
-                } else if (op === '∩') {
-                    result = new Set([...setA.elements].filter(x => setB.elements.has(x)));
-                    opName = '∩';
-                    opType = 'intersection';
-                } else if (op === '\\') {
-                    result = new Set([...setA.elements].filter(x => !setB.elements.has(x)));
-                    opName = '\\';
-                    opType = 'difference';
-                } else if (op === '△') {
-                    const diff1 = [...setA.elements].filter(x => !setB.elements.has(x));
-                    const diff2 = [...setB.elements].filter(x => !setA.elements.has(x));
-                    result = new Set([...diff1, ...diff2]);
-                    opName = '△';
-                    opType = 'symmetric';
-                }
-
-                state.resultElements = result;
-                state.resultDescription = `${left} ${opName} ${right} = {${Array.from(result).join(', ')}}`;
-                state.currentOperation = { type: opType, leftSet: leftIndex, rightSet: rightIndex };
-                setStatus(state.resultDescription, '#6366f1');
-                drawVennDiagram();
-                return;
-            }
-
-            setStatus(translations[currentLang].invalidSyntax, '#ef4444');
-        }
-
-        function insertOperation(type) {
-            const input = document.getElementById('inputField');
-            let currentValue = input.value.trim();
-
-            if (type === 'complement') {
-                // Append complement symbol (combining overline)
-                input.value = currentValue + '\u0305';
-            } else {
-                const symbols = {
-                    'union': '∪',
-                    'intersection': '∩',
-                    'difference': '\\',
-                    'symmetric': '△'
-                };
-
-                // Add space before symbol if needed
-                if (currentValue && !currentValue.endsWith(' ')) {
-                    currentValue += ' ';
-                }
-                // Append symbol with trailing space
-                input.value = currentValue + symbols[type] + ' ';
-            }
-
-            input.focus();
-        }
-
-        function addEmptySet() {
-            const name = document.getElementById('newSetName').value.trim();
-            if (!name) return;
-
-            if (state.sets.find(s => s.name === name)) {
-                setStatus(translations[currentLang].setNameExists, '#ef4444');
-                return;
-            }
-
-            if (state.sets.length >= 4) {
-                setStatus(translations[currentLang].maxSets, '#ef4444');
-                return;
-            }
-
-            state.sets.push({
-                name: name,
-                elements: new Set(),
-                color: colors[state.sets.length]
-            });
-
-            document.getElementById('newSetName').value = '';
-            state.currentOperation = null; // Clear operation when adding sets
-            state.resultElements = null;
-            state.resultDescription = '';
-            updateUniversalSet();
-            updateSetList();
-            drawVennDiagram();
-            setStatus(`${translations[currentLang].addedEmptySet} ${name}`, '#22c55e');
-        }
-
-        function removeSet(index) {
-            const removed = state.sets.splice(index, 1)[0];
-            state.currentOperation = null; // Clear operation when removing sets
-            state.resultElements = null;
-            state.resultDescription = '';
-            updateUniversalSet();
-            updateSetList();
-            drawVennDiagram();
-            setStatus(`${translations[currentLang].removedSet} ${removed.name}`, '#fb923c');
-        }
-
-        function setStatus(message, color) {
-            const statusBar = document.getElementById('statusBar');
-            statusBar.textContent = message;
-            statusBar.style.color = color;
-        }
-
-        // Enter key support
-        document.getElementById('inputField').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') executeInput();
-        });
-
-        document.getElementById('newSetName').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') addEmptySet();
-        });
-
-        // Helper function to check if a point is in a circle
-        function isPointInCircle(x, y, circle) {
-            const dx = x - circle.x;
-            const dy = y - circle.y;
-            return dx * dx + dy * dy <= circle.r * circle.r;
-        }
-
-        // Check if a region (defined by which sets it's in) should be highlighted for current operation
-        function shouldHighlightRegion(insideSets) {
-            if (!state.currentOperation) return false;
-
-            const { type, leftSet, rightSet } = state.currentOperation;
-            const inLeft = insideSets.includes(leftSet);
-            const inRight = rightSet !== null ? insideSets.includes(rightSet) : false;
-
-            switch (type) {
-                case 'union':
-                    // Highlight any region that's in left OR right
-                    return inLeft || inRight;
-
-                case 'intersection':
-                    // Only highlight region that's in BOTH left AND right, and ONLY those two
-                    return inLeft && inRight && insideSets.length === 2 &&
-                           insideSets.every(i => i === leftSet || i === rightSet);
-
-                case 'difference':
-                    // Only highlight regions in left but NOT in right
-                    return inLeft && !inRight;
-
-                case 'symmetric':
-                    // Highlight regions in left OR right, but NOT both
-                    return (inLeft && !inRight) || (!inLeft && inRight);
-
-                case 'complement':
-                    // Highlight regions NOT in the specified set
-                    // This includes empty regions (insideSets.length === 0)
-                    return !inLeft;
-
-                default:
-                    return false;
-            }
-        }
-
-        // Draw diagonal hatching pattern for operation results
-        function drawDiagonalHatching(color, spacing = 8, lineWidth = 1.5) {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = lineWidth;
-
-            const width = canvas.width;
-            const height = canvas.height;
-            const maxDim = width + height;
-
-            // Draw diagonal lines from top-left to bottom-right
-            for (let i = -maxDim; i < maxDim; i += spacing) {
-                ctx.beginPath();
-                ctx.moveTo(i, 0);
-                ctx.lineTo(i + height, height);
-                ctx.stroke();
-            }
-        }
-
-        // Draw operation highlighting using hatching patterns
-        function drawOperationHighlight(circles) {
-            // First, draw all circles with strokes only (no fill)
-            circles.forEach((circle, idx) => {
-                ctx.strokeStyle = `rgb(${circle.color.join(',')})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
-                ctx.stroke();
-
-                // Draw label
-                ctx.fillStyle = `rgb(${circle.color.join(',')})`;
-                ctx.font = 'bold 18px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(circle.name, circle.x, circle.y - circle.r - 10);
-            });
-
-            // Now draw hatched region based on operation type
-            if (!state.currentOperation) return;
-
-            const { type, leftSet, rightSet } = state.currentOperation;
-            const circleA = circles[leftSet];
-            const circleB = rightSet !== null ? circles[rightSet] : null;
-
-            // Define colors for each operation type (solid RGB for hatching)
-            const operationColors = {
-                'union': 'rgb(16, 185, 129)',       // Emerald green
-                'intersection': 'rgb(79, 70, 229)', // Deep indigo
-                'difference': 'rgb(220, 38, 38)',   // Rich red
-                'symmetric': 'rgb(245, 124, 0)',    // Vibrant orange
-                'complement': 'rgb(124, 58, 237)'   // Deep purple
+                return `{${elements.slice(0, CONFIG.ELEMENT_PREVIEW_COUNT).join(', ')}, ... (${elements.length} total)}`;
             };
 
-            ctx.save();
+            /**
+             * Debounce function execution
+             * @param {Function} func - Function to debounce
+             * @param {number} delay - Delay in milliseconds
+             * @returns {Function} Debounced function
+             */
+            const debounce = (func, delay = CONFIG.DEBOUNCE_DELAY) => {
+                let timeoutId;
+                return (...args) => {
+                    clearTimeout(timeoutId);
+                    timeoutId = setTimeout(() => func(...args), delay);
+                };
+            };
 
-            switch (type) {
-                case 'union':
-                    // Clip to union of both circles, then hatch
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    drawDiagonalHatching(operationColors.union);
-                    break;
+            /**
+             * Validate set name
+             * @param {string} name - Set name to validate
+             * @returns {{valid: boolean, error: string|null}}
+             */
+            const validateSetName = (name) => {
+                if (!name || !name.trim()) {
+                    return { valid: false, error: 'Set name cannot be empty' };
+                }
+                if (!/^[A-Za-z]+$/.test(name)) {
+                    return { valid: false, error: 'Set name must contain only letters' };
+                }
+                return { valid: true, error: null };
+            };
 
-                case 'intersection':
-                    // Clip to first circle, then clip to second, then hatch
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    ctx.beginPath();
-                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    drawDiagonalHatching(operationColors.intersection);
-                    break;
+            /**
+             * Get color by index from config
+             * @param {number} index - Color index
+             * @returns {number[]} RGB color array
+             */
+            const getColorByIndex = (index) => {
+                const colorKeys = Object.keys(CONFIG.COLORS);
+                const colorKey = colorKeys[index % colorKeys.length];
+                return CONFIG.COLORS[colorKey];
+            };
 
-                case 'difference':
-                    // Clip to first circle, cut out second, then hatch
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    // Create a temporary canvas for cutting out circleB
-                    ctx.save();
-                    ctx.globalCompositeOperation = 'destination-out';
-                    ctx.fillStyle = 'black';
-                    ctx.beginPath();
-                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
-                    // Now hatch the remaining area
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    drawDiagonalHatching(operationColors.difference);
-                    break;
+            /**
+             * Check if point is inside circle
+             * @param {number} x - Point x coordinate
+             * @param {number} y - Point y coordinate
+             * @param {{x: number, y: number, r: number}} circle - Circle object
+             * @returns {boolean}
+             */
+            const isPointInCircle = (x, y, circle) => {
+                const dx = x - circle.x;
+                const dy = y - circle.y;
+                return dx * dx + dy * dy <= circle.r * circle.r;
+            };
 
-                case 'symmetric':
-                    // Hatch both circles, then cut out intersection
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    drawDiagonalHatching(operationColors.symmetric);
+            return {
+                formatRgbColor,
+                formatElementList,
+                debounce,
+                validateSetName,
+                getColorByIndex,
+                isPointInCircle
+            };
+        })();
 
-                    // Cut out the intersection
-                    ctx.save();
-                    ctx.globalCompositeOperation = 'destination-out';
-                    ctx.fillStyle = 'black';
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.clip();
-                    ctx.beginPath();
-                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
-                    break;
+        // ===================================================================
+        // STATE MANAGER MODULE
+        // ===================================================================
 
-                case 'complement':
-                    // Clip to universal set rectangle, cut out circle, then hatch
-                    const padding = 40;
-                    const minX = Math.min(...circles.map(c => c.x - c.r)) - padding;
-                    const maxX = Math.max(...circles.map(c => c.x + c.r)) + padding;
-                    const minY = Math.min(...circles.map(c => c.y - c.r)) - padding;
-                    const maxY = Math.max(...circles.map(c => c.y + c.r)) + padding;
+        const StateManager = (() => {
+            // Private state
+            let state = {
+                sets: [],
+                universalSet: new Set(),
+                resultElements: null,
+                resultDescription: '',
+                hoveredRegion: null,
+                currentOperation: null,
+                diagramType: 'venn'
+            };
 
-                    ctx.rect(minX, minY, maxX - minX, maxY - minY);
-                    ctx.clip();
-                    drawDiagonalHatching(operationColors.complement);
+            /**
+             * Get current state (read-only copy)
+             * @returns {Object} State object
+             */
+            const getState = () => ({ ...state });
 
-                    // Cut out the circle
-                    ctx.globalCompositeOperation = 'destination-out';
-                    ctx.fillStyle = 'black';
-                    ctx.beginPath();
-                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
-                    ctx.fill();
-                    break;
-            }
+            /**
+             * Get sets array
+             * @returns {Array}
+             */
+            const getSets = () => state.sets;
 
-            ctx.restore();
-        }
+            /**
+             * Get diagram type
+             * @returns {string}
+             */
+            const getDiagramType = () => state.diagramType;
 
-        // Draw universal set rectangle around circles
-        function drawUniversalSet(circles) {
-            if (circles.length === 0) return;
+            /**
+             * Set diagram type
+             * @param {string} type - 'venn' or 'euler'
+             */
+            const setDiagramType = (type) => {
+                state.diagramType = type;
+            };
 
-            // Calculate bounding box for all circles
-            let minX = Infinity, maxX = -Infinity;
-            let minY = Infinity, maxY = -Infinity;
+            /**
+             * Update universal set (union of all sets)
+             */
+            const updateUniversalSet = () => {
+                state.universalSet = new Set();
+                state.sets.forEach(set => {
+                    set.elements.forEach(elem => state.universalSet.add(elem));
+                });
+            };
 
-            circles.forEach(circle => {
-                minX = Math.min(minX, circle.x - circle.r);
-                maxX = Math.max(maxX, circle.x + circle.r);
-                minY = Math.min(minY, circle.y - circle.r);
-                maxY = Math.max(maxY, circle.y + circle.r);
-            });
+            /**
+             * Clear current operation state
+             */
+            const clearOperation = () => {
+                state.currentOperation = null;
+                state.resultElements = null;
+                state.resultDescription = '';
+            };
 
-            // Add padding
-            const padding = 40;
-            minX -= padding;
-            maxX += padding;
-            minY -= padding;
-            maxY += padding;
+            /**
+             * Set current operation
+             * @param {Object} operation - Operation object
+             * @param {Set} resultElements - Result elements
+             * @param {string} description - Result description
+             */
+            const setOperation = (operation, resultElements, description) => {
+                state.currentOperation = operation;
+                state.resultElements = resultElements;
+                state.resultDescription = description;
+            };
 
-            // Draw rectangle
-            ctx.strokeStyle = '#9ca3af';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([8, 4]);
-            ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
-            ctx.setLineDash([]); // Reset dash
+            /**
+             * Add new set
+             * @param {string} name - Set name
+             * @param {Array} elements - Array of elements
+             * @returns {{success: boolean, error: string|null}}
+             */
+            const addSet = (name, elements = []) => {
+                const validation = Utils.validateSetName(name);
+                if (!validation.valid) {
+                    return { success: false, error: validation.error };
+                }
 
-            // Draw label "U" in top-left corner
-            ctx.fillStyle = '#6b7280';
-            ctx.font = 'bold 18px sans-serif';
-            ctx.textAlign = 'left';
-            ctx.fillText('U', minX + 10, minY + 25);
-        }
+                if (state.sets.length >= CONFIG.MAX_SETS) {
+                    return { success: false, error: `Maximum ${CONFIG.MAX_SETS} sets allowed` };
+                }
 
-        // Drawing functions will be added in next part
-        function drawVennDiagram() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (state.sets.find(s => s.name === name)) {
+                    return { success: false, error: 'Set name already exists' };
+                }
 
-            if (state.sets.length === 0) {
+                state.sets.push({
+                    name,
+                    elements: new Set(elements),
+                    color: Utils.getColorByIndex(state.sets.length)
+                });
+
+                clearOperation();
+                updateUniversalSet();
+                return { success: true, error: null };
+            };
+
+            /**
+             * Update existing set
+             * @param {string} name - Set name
+             * @param {Array} elements - New elements
+             * @returns {{success: boolean, error: string|null}}
+             */
+            const updateSet = (name, elements) => {
+                const existing = state.sets.find(s => s.name === name);
+                if (!existing) {
+                    return { success: false, error: 'Set not found' };
+                }
+
+                existing.elements = new Set(elements);
+                clearOperation();
+                updateUniversalSet();
+                return { success: true, error: null };
+            };
+
+            /**
+             * Remove set by index
+             * @param {number} index - Set index
+             * @returns {{success: boolean, removed: Object|null}}
+             */
+            const removeSet = (index) => {
+                if (index < 0 || index >= state.sets.length) {
+                    return { success: false, removed: null };
+                }
+
+                const removed = state.sets.splice(index, 1)[0];
+                clearOperation();
+                updateUniversalSet();
+                return { success: true, removed };
+            };
+
+            /**
+             * Find set by name
+             * @param {string} name - Set name
+             * @returns {{set: Object|null, index: number}}
+             */
+            const findSet = (name) => {
+                const index = state.sets.findIndex(s => s.name === name);
+                return {
+                    set: index >= 0 ? state.sets[index] : null,
+                    index
+                };
+            };
+
+            /**
+             * Set hovered region
+             * @param {Object|null} region - Region data
+             */
+            const setHoveredRegion = (region) => {
+                state.hoveredRegion = region;
+            };
+
+            /**
+             * Get hovered region
+             * @returns {Object|null}
+             */
+            const getHoveredRegion = () => state.hoveredRegion;
+
+            /**
+             * Initialize with example sets
+             */
+            const initializeDefaultSets = () => {
+                state.sets = [
+                    {
+                        name: 'A',
+                        elements: new Set(['1', '2', '3', '4']),
+                        color: Utils.getColorByIndex(0)
+                    },
+                    {
+                        name: 'B',
+                        elements: new Set(['3', '4', '5', '6']),
+                        color: Utils.getColorByIndex(1)
+                    }
+                ];
+                updateUniversalSet();
+            };
+
+            return {
+                getState,
+                getSets,
+                getDiagramType,
+                setDiagramType,
+                updateUniversalSet,
+                clearOperation,
+                setOperation,
+                addSet,
+                updateSet,
+                removeSet,
+                findSet,
+                setHoveredRegion,
+                getHoveredRegion,
+                initializeDefaultSets
+            };
+        })();
+
+        // ===================================================================
+        // PARSER MODULE
+        // ===================================================================
+
+        const Parser = (() => {
+            /**
+             * Parse user input
+             * @param {string} input - Raw user input
+             * @returns {{type: string, data: Object, error: string|null}}
+             */
+            const parseInput = (input) => {
+                if (!input || !input.trim()) {
+                    return { type: 'empty', data: null, error: null };
+                }
+
+                // Normalize whitespace
+                const normalized = input.trim().replace(CONFIG.REGEX.whitespace, ' ');
+
+                // Try parsing as set definition
+                const setDef = parseSetDefinition(normalized);
+                if (setDef.type === 'setDefinition') return setDef;
+
+                // Try parsing as complement
+                const complement = parseComplement(normalized);
+                if (complement.type === 'complement') return complement;
+
+                // Try parsing as binary operation
+                const binOp = parseBinaryOperation(normalized);
+                if (binOp.type === 'binaryOperation') return binOp;
+
+                return {
+                    type: 'invalid',
+                    data: null,
+                    error: 'invalidSyntax'
+                };
+            };
+
+            /**
+             * Parse set definition (e.g., A={1,2,3})
+             * @param {string} input - Normalized input
+             * @returns {{type: string, data: Object|null, error: string|null}}
+             */
+            const parseSetDefinition = (input) => {
+                const match = input.match(CONFIG.REGEX.setDefinition);
+                if (!match) {
+                    return { type: 'notMatched', data: null, error: null };
+                }
+
+                const [, name, elementsStr] = match;
+                const elements = elementsStr.trim()
+                    ? elementsStr.split(',').map(e => e.trim()).filter(e => e.length > 0)
+                    : [];
+
+                return {
+                    type: 'setDefinition',
+                    data: { name, elements },
+                    error: null
+                };
+            };
+
+            /**
+             * Parse complement operation (e.g., A' or A̅)
+             * @param {string} input - Normalized input
+             * @returns {{type: string, data: Object|null, error: string|null}}
+             */
+            const parseComplement = (input) => {
+                const match = input.match(CONFIG.REGEX.complement);
+                if (!match) {
+                    return { type: 'notMatched', data: null, error: null };
+                }
+
+                const [, setName] = match;
+                return {
+                    type: 'complement',
+                    data: { setName },
+                    error: null
+                };
+            };
+
+            /**
+             * Parse binary operation (e.g., A ∪ B)
+             * @param {string} input - Normalized input
+             * @returns {{type: string, data: Object|null, error: string|null}}
+             */
+            const parseBinaryOperation = (input) => {
+                const match = input.match(CONFIG.REGEX.binaryOperation);
+                if (!match) {
+                    return { type: 'notMatched', data: null, error: null };
+                }
+
+                const [, left, op, right] = match;
+
+                // Map operation symbol to type
+                let opType;
+                if (op === '∪' || op === 'U') opType = 'union';
+                else if (op === '∩') opType = 'intersection';
+                else if (op === '\\') opType = 'difference';
+                else if (op === '△') opType = 'symmetric';
+
+                return {
+                    type: 'binaryOperation',
+                    data: { left, right, operation: opType, symbol: op === 'U' ? '∪' : op },
+                    error: null
+                };
+            };
+
+            return {
+                parseInput,
+                parseSetDefinition,
+                parseComplement,
+                parseBinaryOperation
+            };
+        })();
+
+        // ===================================================================
+        // SET OPERATIONS MODULE
+        // ===================================================================
+
+        const SetOps = (() => {
+            /**
+             * Union of two sets
+             * @param {Set} setA - First set
+             * @param {Set} setB - Second set
+             * @returns {Set} Union result
+             */
+            const union = (setA, setB) => new Set([...setA, ...setB]);
+
+            /**
+             * Intersection of two sets
+             * @param {Set} setA - First set
+             * @param {Set} setB - Second set
+             * @returns {Set} Intersection result
+             */
+            const intersection = (setA, setB) =>
+                new Set([...setA].filter(x => setB.has(x)));
+
+            /**
+             * Difference of two sets (A - B)
+             * @param {Set} setA - First set
+             * @param {Set} setB - Second set
+             * @returns {Set} Difference result
+             */
+            const difference = (setA, setB) =>
+                new Set([...setA].filter(x => !setB.has(x)));
+
+            /**
+             * Symmetric difference of two sets
+             * @param {Set} setA - First set
+             * @param {Set} setB - Second set
+             * @returns {Set} Symmetric difference result
+             */
+            const symmetricDifference = (setA, setB) => {
+                const diff1 = [...setA].filter(x => !setB.has(x));
+                const diff2 = [...setB].filter(x => !setA.has(x));
+                return new Set([...diff1, ...diff2]);
+            };
+
+            /**
+             * Complement of a set relative to universal set
+             * @param {Set} set - The set
+             * @param {Set} universalSet - Universal set
+             * @returns {Set} Complement result
+             */
+            const complement = (set, universalSet) =>
+                new Set([...universalSet].filter(x => !set.has(x)));
+
+            /**
+             * Check if two sets intersect
+             * @param {Object} setA - Set object with elements property
+             * @param {Object} setB - Set object with elements property
+             * @returns {boolean}
+             */
+            const setsIntersect = (setA, setB) => {
+                for (const elem of setA.elements) {
+                    if (setB.elements.has(elem)) return true;
+                }
+                return false;
+            };
+
+            /**
+             * Check if setA is subset of setB
+             * @param {Object} setA - Set object with elements property
+             * @param {Object} setB - Set object with elements property
+             * @returns {boolean}
+             */
+            const isSubset = (setA, setB) => {
+                for (const elem of setA.elements) {
+                    if (!setB.elements.has(elem)) return false;
+                }
+                return true;
+            };
+
+            return {
+                union,
+                intersection,
+                difference,
+                symmetricDifference,
+                complement,
+                setsIntersect,
+                isSubset
+            };
+        })();
+
+        // ===================================================================
+        // I18N MODULE
+        // ===================================================================
+
+        const I18n = (() => {
+            let currentLang = localStorage.getItem('language') || 'en';
+
+            /**
+             * Get current language
+             * @returns {string}
+             */
+            const getCurrentLanguage = () => currentLang;
+
+            /**
+             * Translate a key
+             * @param {string} key - Translation key
+             * @param {Object} params - Optional parameters for interpolation
+             * @returns {string}
+             */
+            const translate = (key, params = {}) => {
+                let text = translations[currentLang]?.[key] || key;
+
+                // Simple parameter replacement
+                Object.keys(params).forEach(param => {
+                    text = text.replace(`{${param}}`, params[param]);
+                });
+
+                return text;
+            };
+
+            /**
+             * Set language and update UI
+             * @param {string} lang - Language code ('en' or 'uk')
+             */
+            const setLanguage = (lang) => {
+                currentLang = lang;
+                localStorage.setItem('language', lang);
+
+                // Update language buttons
+                document.getElementById('lang-en')?.classList.toggle('active', lang === 'en');
+                document.getElementById('lang-uk')?.classList.toggle('active', lang === 'uk');
+
+                // Update all elements with data-i18n attribute
+                document.querySelectorAll('[data-i18n]').forEach(element => {
+                    const key = element.getAttribute('data-i18n');
+                    const text = translate(key);
+                    if (element.id === 'examplesContent') {
+                        element.innerHTML = text;
+                    } else {
+                        element.textContent = text;
+                    }
+                });
+
+                // Update placeholders
+                document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+                    const key = element.getAttribute('data-i18n-placeholder');
+                    element.placeholder = translate(key);
+                });
+            };
+
+            return {
+                getCurrentLanguage,
+                translate,
+                setLanguage
+            };
+        })();
+
+        // ===================================================================
+        // APPLICATION CONTROLLER
+        // ===================================================================
+
+        const App = (() => {
+            // DOM Elements Cache
+            const DOM = {
+                canvas: null,
+                ctx: null,
+                tooltip: null,
+                statusBar: null,
+                inputField: null,
+                newSetName: null,
+                setList: null
+            };
+
+            /**
+             * Initialize application
+             */
+            const init = () => {
+                // Cache DOM elements
+                DOM.canvas = document.getElementById('vennCanvas');
+                DOM.ctx = DOM.canvas.getContext('2d');
+                DOM.tooltip = document.getElementById('tooltip');
+                DOM.statusBar = document.getElementById('statusBar');
+                DOM.inputField = document.getElementById('inputField');
+                DOM.newSetName = document.getElementById('newSetName');
+                DOM.setList = document.getElementById('setList');
+
+                // Initialize renderer
+                Renderer.init(DOM.canvas);
+
+                // Initialize state with default sets
+                StateManager.initializeDefaultSets();
+
+                // Setup event listeners
+                setupEventListeners();
+
+                // Initial render
+                updateSetList();
+                resizeCanvas();
+
+                // Initialize language
+                I18n.setLanguage(I18n.getCurrentLanguage());
+                updateStatusBar(I18n.translate('readyStatus'), CONFIG.STATUS_COLORS.default);
+            };
+
+            /**
+             * Setup all event listeners
+             */
+            const setupEventListeners = () => {
+                // Resize handler with debouncing
+                window.addEventListener('resize', Utils.debounce(resizeCanvas));
+
+                // Input field enter key
+                DOM.inputField.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handleInput();
+                });
+
+                // New set name enter key
+                DOM.newSetName.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handleAddEmptySet();
+                });
+
+                // Canvas mouse events
+                DOM.canvas.addEventListener('mousemove', handleCanvasMouseMove);
+                DOM.canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
+
+                // Event delegation for set list (will handle dynamically created elements)
+                DOM.setList.addEventListener('click', handleSetListClick);
+            };
+
+            /**
+             * Handle canvas mouse move
+             */
+            const handleCanvasMouseMove = (e) => {
+                const rect = DOM.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                const insideSets = Renderer.getCirclesAtPoint(x, y);
+
+                if (insideSets.length > 0) {
+                    const region = Renderer.calculateRegionInfo(insideSets);
+                    StateManager.setHoveredRegion({ sets: insideSets, ...region });
+
+                    // Update tooltip
+                    DOM.tooltip.textContent = `${region.description}\n${region.elementsText}`;
+                    DOM.tooltip.classList.add('visible');
+
+                    // Smart positioning
+                    positionTooltip(e, rect);
+                } else {
+                    StateManager.setHoveredRegion(null);
+                    DOM.tooltip.classList.remove('visible');
+                }
+
+                Renderer.draw();
+            };
+
+            /**
+             * Position tooltip smartly to avoid viewport edges
+             */
+            const positionTooltip = (e, canvasRect) => {
+                const rect = DOM.tooltip.getBoundingClientRect();
+                const offset = 8;
+                const padding = 10;
+
+                let left = canvasRect.left + (e.clientX - canvasRect.left) + offset;
+                let top = canvasRect.top + (e.clientY - canvasRect.top) + offset;
+
+                // Check boundaries and flip if needed
+                if (left + rect.width + padding > window.innerWidth) {
+                    left = canvasRect.left + (e.clientX - canvasRect.left) - rect.width - offset;
+                }
+                if (top + rect.height + padding > window.innerHeight) {
+                    top = canvasRect.top + (e.clientY - canvasRect.top) - rect.height - offset;
+                }
+
+                // Clamp to viewport
+                left = Math.max(padding, Math.min(left, window.innerWidth - rect.width - padding));
+                top = Math.max(padding, Math.min(top, window.innerHeight - rect.height - padding));
+
+                DOM.tooltip.style.left = `${left}px`;
+                DOM.tooltip.style.top = `${top}px`;
+            };
+
+            /**
+             * Handle canvas mouse leave
+             */
+            const handleCanvasMouseLeave = () => {
+                StateManager.setHoveredRegion(null);
+                DOM.tooltip.classList.remove('visible');
+                Renderer.draw();
+            };
+
+            /**
+             * Handle set list clicks (event delegation)
+             */
+            const handleSetListClick = (e) => {
+                const setInfo = e.target.closest('.set-info');
+                const removeBtn = e.target.closest('.btn-remove');
+
+                if (setInfo) {
+                    const index = Array.from(DOM.setList.children).indexOf(setInfo.closest('.set-item'));
+                    handleEditSet(index);
+                } else if (removeBtn) {
+                    const index = Array.from(DOM.setList.children).indexOf(removeBtn.closest('.set-item'));
+                    handleRemoveSet(index);
+                }
+            };
+
+            /**
+             * Handle input execution
+             */
+            const handleInput = () => {
+                const input = DOM.inputField.value;
+                const parsed = Parser.parseInput(input);
+
+                switch (parsed.type) {
+                    case 'empty':
+                        return;
+
+                    case 'setDefinition':
+                        handleSetDefinition(parsed.data);
+                        break;
+
+                    case 'complement':
+                        handleComplement(parsed.data);
+                        break;
+
+                    case 'binaryOperation':
+                        handleBinaryOperation(parsed.data);
+                        break;
+
+                    case 'invalid':
+                        updateStatusBar(I18n.translate('invalidSyntax'), CONFIG.STATUS_COLORS.error);
+                        break;
+                }
+            };
+
+            /**
+             * Handle set definition
+             */
+            const handleSetDefinition = ({ name, elements }) => {
+                const { set } = StateManager.findSet(name);
+
+                if (set) {
+                    const result = StateManager.updateSet(name, elements);
+                    if (result.success) {
+                        updateStatusBar(
+                            `${I18n.translate('updatedSet')} ${name}`,
+                            CONFIG.STATUS_COLORS.success
+                        );
+                    }
+                } else {
+                    const result = StateManager.addSet(name, elements);
+                    if (result.success) {
+                        updateStatusBar(
+                            `${I18n.translate('createdSet')} ${name}`,
+                            CONFIG.STATUS_COLORS.success
+                        );
+                    } else {
+                        updateStatusBar(I18n.translate('maxSets'), CONFIG.STATUS_COLORS.error);
+                        return;
+                    }
+                }
+
+                DOM.inputField.value = '';
+                updateSetList();
+                Renderer.draw();
+            };
+
+            /**
+             * Handle complement operation
+             */
+            const handleComplement = ({ setName }) => {
+                const { set, index } = StateManager.findSet(setName);
+
+                if (!set) {
+                    updateStatusBar(
+                        `${setName} ${I18n.translate('setNotDefined')} ${setName}={...}`,
+                        CONFIG.STATUS_COLORS.error
+                    );
+                    return;
+                }
+
+                const state = StateManager.getState();
+                const result = SetOps.complement(set.elements, state.universalSet);
+                const description = `${setName}\u0305 = {${Array.from(result).join(', ')}}`;
+
+                StateManager.setOperation(
+                    { type: 'complement', leftSet: index, rightSet: null },
+                    result,
+                    description
+                );
+
+                updateStatusBar(description, CONFIG.STATUS_COLORS.info);
+                Renderer.draw();
+            };
+
+            /**
+             * Handle binary operation
+             */
+            const handleBinaryOperation = ({ left, right, operation, symbol }) => {
+                const leftResult = StateManager.findSet(left);
+                const rightResult = StateManager.findSet(right);
+
+                // Check if sets exist
+                if (!leftResult.set && !rightResult.set) {
+                    updateStatusBar(
+                        `${left}, ${right} ${I18n.translate('setsNotDefined')}`,
+                        CONFIG.STATUS_COLORS.error
+                    );
+                    return;
+                }
+                if (!leftResult.set) {
+                    updateStatusBar(
+                        `${left} ${I18n.translate('setNotDefined')} ${left}={...}`,
+                        CONFIG.STATUS_COLORS.error
+                    );
+                    return;
+                }
+                if (!rightResult.set) {
+                    updateStatusBar(
+                        `${right} ${I18n.translate('setNotDefined')} ${right}={...}`,
+                        CONFIG.STATUS_COLORS.error
+                    );
+                    return;
+                }
+
+                // Perform operation
+                let result;
+                switch (operation) {
+                    case 'union':
+                        result = SetOps.union(leftResult.set.elements, rightResult.set.elements);
+                        break;
+                    case 'intersection':
+                        result = SetOps.intersection(leftResult.set.elements, rightResult.set.elements);
+                        break;
+                    case 'difference':
+                        result = SetOps.difference(leftResult.set.elements, rightResult.set.elements);
+                        break;
+                    case 'symmetric':
+                        result = SetOps.symmetricDifference(leftResult.set.elements, rightResult.set.elements);
+                        break;
+                }
+
+                const description = `${left} ${symbol} ${right} = {${Array.from(result).join(', ')}}`;
+
+                StateManager.setOperation(
+                    { type: operation, leftSet: leftResult.index, rightSet: rightResult.index },
+                    result,
+                    description
+                );
+
+                updateStatusBar(description, CONFIG.STATUS_COLORS.info);
+                Renderer.draw();
+            };
+
+            /**
+             * Handle add empty set
+             */
+            const handleAddEmptySet = () => {
+                const name = DOM.newSetName.value.trim();
+                if (!name) return;
+
+                const result = StateManager.addSet(name, []);
+
+                if (result.success) {
+                    DOM.newSetName.value = '';
+                    updateSetList();
+                    Renderer.draw();
+                    updateStatusBar(
+                        `${I18n.translate('addedEmptySet')} ${name}`,
+                        CONFIG.STATUS_COLORS.success
+                    );
+                } else {
+                    if (result.error.includes('exists')) {
+                        updateStatusBar(I18n.translate('setNameExists'), CONFIG.STATUS_COLORS.error);
+                    } else {
+                        updateStatusBar(I18n.translate('maxSets'), CONFIG.STATUS_COLORS.error);
+                    }
+                }
+            };
+
+            /**
+             * Handle edit set
+             */
+            const handleEditSet = (index) => {
+                const sets = StateManager.getSets();
+                const set = sets[index];
+                if (!set) return;
+
+                const elementsArray = Array.from(set.elements);
+                DOM.inputField.value = `${set.name}={${elementsArray.join(',')}}`;
+                DOM.inputField.focus();
+            };
+
+            /**
+             * Handle remove set
+             */
+            const handleRemoveSet = (index) => {
+                const result = StateManager.removeSet(index);
+                if (result.success) {
+                    updateSetList();
+                    Renderer.draw();
+                    updateStatusBar(
+                        `${I18n.translate('removedSet')} ${result.removed.name}`,
+                        CONFIG.STATUS_COLORS.warning
+                    );
+                }
+            };
+
+            /**
+             * Handle diagram type change
+             */
+            const handleDiagramTypeChange = (type) => {
+                StateManager.setDiagramType(type);
+                Renderer.draw();
+            };
+
+            /**
+             * Handle insert operation
+             */
+            const handleInsertOperation = (type) => {
+                let currentValue = DOM.inputField.value.trim();
+
+                if (type === 'complement') {
+                    DOM.inputField.value = currentValue + CONFIG.OPERATION_SYMBOLS.complement;
+                } else {
+                    const symbol = CONFIG.OPERATION_SYMBOLS[type];
+                    if (currentValue && !currentValue.endsWith(' ')) {
+                        currentValue += ' ';
+                    }
+                    DOM.inputField.value = currentValue + symbol + ' ';
+                }
+
+                DOM.inputField.focus();
+            };
+
+            /**
+             * Handle language change
+             */
+            const handleLanguageChange = (lang) => {
+                I18n.setLanguage(lang);
+                updateStatusBar(I18n.translate('readyStatus'), CONFIG.STATUS_COLORS.default);
+                Renderer.draw();
+            };
+
+            /**
+             * Resize canvas
+             */
+            const resizeCanvas = () => {
+                const container = DOM.canvas.parentElement;
+                DOM.canvas.width = container.clientWidth;
+                DOM.canvas.height = container.clientHeight;
+                Renderer.draw();
+            };
+
+            /**
+             * Update set list display
+             */
+            const updateSetList = () => {
+                DOM.setList.innerHTML = '';
+                const sets = StateManager.getSets();
+
+                sets.forEach((set, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'set-item';
+
+                    const elementsArray = Array.from(set.elements);
+                    const elementsStr = Utils.formatElementList(elementsArray);
+
+                    // Create elements safely without inline handlers
+                    const setColor = document.createElement('div');
+                    setColor.className = 'set-color';
+                    setColor.style.background = Utils.formatRgbColor(set.color);
+
+                    const setInfo = document.createElement('div');
+                    setInfo.className = 'set-info';
+                    setInfo.style.cursor = 'pointer';
+
+                    const setName = document.createElement('div');
+                    setName.className = 'set-name';
+                    setName.textContent = `${set.name} = ${elementsStr}`;
+
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = 'btn-remove';
+                    removeBtn.textContent = '×';
+
+                    setInfo.appendChild(setName);
+                    li.appendChild(setColor);
+                    li.appendChild(setInfo);
+                    li.appendChild(removeBtn);
+                    DOM.setList.appendChild(li);
+                });
+            };
+
+            /**
+             * Update status bar
+             */
+            const updateStatusBar = (message, color) => {
+                DOM.statusBar.textContent = message;
+                DOM.statusBar.style.color = color;
+            };
+
+            // Export global functions for HTML onclick handlers (will migrate to event delegation)
+            window.changeDiagramType = handleDiagramTypeChange;
+            window.insertOperation = handleInsertOperation;
+            window.setLanguage = handleLanguageChange;
+            window.executeInput = handleInput;
+            window.addEmptySet = handleAddEmptySet;
+            window.editSet = handleEditSet;
+            window.removeSet = handleRemoveSet;
+
+            return {
+                init
+            };
+        })();
+
+        /**
+         * Renderer Module
+         * Handles all canvas drawing operations for Venn/Euler diagrams
+         * @module Renderer
+         */
+        const Renderer = (() => {
+            let ctx = null;
+            let canvas = null;
+
+            /**
+             * Initialize renderer with canvas context
+             * @param {HTMLCanvasElement} canvasElement - The canvas element
+             */
+            const init = (canvasElement) => {
+                canvas = canvasElement;
+                ctx = canvas.getContext('2d');
+            };
+
+            /**
+             * Main drawing function - orchestrates the entire diagram rendering
+             */
+            const draw = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                const state = StateManager.getState();
+
+                if (state.sets.length === 0) {
+                    drawEmptyMessage();
+                    return;
+                }
+
+                const circles = calculateCirclePositions();
+
+                // Draw universal set rectangle
+                drawUniversalSet(circles);
+
+                // If there's an operation, draw regions with proper highlighting
+                if (state.currentOperation) {
+                    drawOperationHighlight(circles);
+                } else {
+                    drawCircles(circles);
+                }
+
+                // Draw elements in regions
+                if (state.sets.length === 2) {
+                    drawTwoSetElements(circles);
+                } else if (state.sets.length === 3) {
+                    drawThreeSetElements(circles);
+                }
+            };
+
+            /**
+             * Draw message when no sets are defined
+             */
+            const drawEmptyMessage = () => {
                 ctx.fillStyle = '#6b7280';
                 ctx.font = '16px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText('No sets defined. Add a set to get started!', canvas.width / 2, canvas.height / 2);
-                return;
-            }
+                ctx.fillText(
+                    'No sets defined. Add a set to get started!',
+                    canvas.width / 2,
+                    canvas.height / 2
+                );
+            };
 
-            const circles = calculateCirclePositions();
-
-            // Draw universal set rectangle
-            drawUniversalSet(circles);
-
-            // If there's an operation, draw regions with proper highlighting
-            if (state.currentOperation) {
-                drawOperationHighlight(circles);
-            } else {
-                // Draw circles with strokes only (no fill)
-                circles.forEach((circle, idx) => {
-                    ctx.strokeStyle = `rgb(${circle.color.join(',')})`;
-                    ctx.lineWidth = 2;
+            /**
+             * Draw circles with strokes and labels
+             * @param {Array<Object>} circles - Circle definitions
+             */
+            const drawCircles = (circles) => {
+                circles.forEach(circle => {
+                    ctx.strokeStyle = Utils.formatRgbColor(circle.color);
+                    ctx.lineWidth = CONFIG.LINE_WIDTH.default;
                     ctx.beginPath();
                     ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
                     ctx.stroke();
 
                     // Draw label
-                    ctx.fillStyle = `rgb(${circle.color.join(',')})`;
-                    ctx.font = 'bold 18px sans-serif';
+                    ctx.fillStyle = Utils.formatRgbColor(circle.color);
+                    ctx.font = CONFIG.FONT_SIZE.label;
                     ctx.textAlign = 'center';
                     ctx.fillText(circle.name, circle.x, circle.y - circle.r - 10);
                 });
-            }
+            };
 
-            // Draw elements in regions
-            if (state.sets.length === 2) {
-                drawTwoSetElements(circles);
-            } else if (state.sets.length === 3) {
-                drawThreeSetElements(circles);
-            }
-        }
+            /**
+             * Draw universal set rectangle around circles
+             * @param {Array<Object>} circles - Circle definitions
+             */
+            const drawUniversalSet = (circles) => {
+                if (circles.length === 0) return;
 
-        // Check if two sets have any intersection
-        function setsIntersect(setA, setB) {
-            for (let elem of setA.elements) {
-                if (setB.elements.has(elem)) {
-                    return true;
+                // Calculate bounding box for all circles
+                let minX = Math.min(...circles.map(c => c.x - c.r));
+                let maxX = Math.max(...circles.map(c => c.x + c.r));
+                let minY = Math.min(...circles.map(c => c.y - c.r));
+                let maxY = Math.max(...circles.map(c => c.y + c.r));
+
+                // Add padding
+                minX -= CONFIG.CANVAS_PADDING;
+                maxX += CONFIG.CANVAS_PADDING;
+                minY -= CONFIG.CANVAS_PADDING;
+                maxY += CONFIG.CANVAS_PADDING;
+
+                // Draw rectangle
+                ctx.strokeStyle = '#9ca3af';
+                ctx.lineWidth = CONFIG.LINE_WIDTH.default;
+                ctx.setLineDash([8, 4]);
+                ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+                ctx.setLineDash([]); // Reset dash
+
+                // Draw label "U" in top-left corner
+                ctx.fillStyle = '#6b7280';
+                ctx.font = CONFIG.FONT_SIZE.label;
+                ctx.textAlign = 'left';
+                ctx.fillText('U', minX + 10, minY + 25);
+            };
+
+            /**
+             * Draw diagonal hatching pattern for operation results
+             * @param {string} color - RGB color string
+             * @param {number} spacing - Spacing between hatch lines
+             * @param {number} lineWidth - Width of hatch lines
+             */
+            const drawDiagonalHatching = (color, spacing = CONFIG.HATCHING_SPACING, lineWidth = CONFIG.LINE_WIDTH.diagonal) => {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = lineWidth;
+
+                const width = canvas.width;
+                const height = canvas.height;
+                const maxDim = width + height;
+
+                // Draw diagonal lines from top-left to bottom-right
+                for (let i = -maxDim; i < maxDim; i += spacing) {
+                    ctx.beginPath();
+                    ctx.moveTo(i, 0);
+                    ctx.lineTo(i + height, height);
+                    ctx.stroke();
                 }
-            }
-            return false;
-        }
+            };
 
-        // Check if setA is a subset of setB (all elements of setA are in setB)
-        function isSubset(setA, setB) {
-            for (let elem of setA.elements) {
-                if (!setB.elements.has(elem)) {
-                    return false;
+            /**
+             * Draw operation highlighting using hatching patterns
+             * @param {Array<Object>} circles - Circle definitions
+             */
+            const drawOperationHighlight = (circles) => {
+                // First, draw all circles with strokes only (no fill)
+                drawCircles(circles);
+
+                const state = StateManager.getState();
+                if (!state.currentOperation) return;
+
+                const { type, leftSet, rightSet } = state.currentOperation;
+                const circleA = circles[leftSet];
+                const circleB = rightSet !== null ? circles[rightSet] : null;
+
+                ctx.save();
+
+                switch (type) {
+                    case 'union':
+                        drawUnionHighlight(circleA, circleB);
+                        break;
+                    case 'intersection':
+                        drawIntersectionHighlight(circleA, circleB);
+                        break;
+                    case 'difference':
+                        drawDifferenceHighlight(circleA, circleB);
+                        break;
+                    case 'symmetric':
+                        drawSymmetricDifferenceHighlight(circleA, circleB);
+                        break;
+                    case 'complement':
+                        drawComplementHighlight(circleA, circles);
+                        break;
                 }
-            }
-            return true;
-        }
 
-        function calculateCirclePositions() {
-            const centerX = canvas.width / 2;
-            const centerY = (canvas.height - 60) / 2; // Leave space for status bar
-            const radius = Math.min(canvas.width, canvas.height - 120) / 4;
+                ctx.restore();
+            };
 
-            if (state.sets.length === 1) {
-                return [{
-                    x: centerX,
-                    y: centerY,
-                    r: radius,
-                    name: state.sets[0].name,
-                    color: state.sets[0].color
-                }];
-            } else if (state.sets.length === 2) {
+            /**
+             * Draw union operation highlighting
+             */
+            const drawUnionHighlight = (circleA, circleB) => {
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                ctx.clip();
+                drawDiagonalHatching(CONFIG.OPERATION_COLORS.union);
+            };
+
+            /**
+             * Draw intersection operation highlighting
+             */
+            const drawIntersectionHighlight = (circleA, circleB) => {
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.beginPath();
+                ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                ctx.clip();
+                drawDiagonalHatching(CONFIG.OPERATION_COLORS.intersection);
+            };
+
+            /**
+             * Draw difference operation highlighting
+             */
+            const drawDifferenceHighlight = (circleA, circleB) => {
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.clip();
+                // Create a temporary canvas for cutting out circleB
+                ctx.save();
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                // Now hatch the remaining area
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.clip();
+                drawDiagonalHatching(CONFIG.OPERATION_COLORS.difference);
+            };
+
+            /**
+             * Draw symmetric difference operation highlighting
+             */
+            const drawSymmetricDifferenceHighlight = (circleA, circleB) => {
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                ctx.clip();
+                drawDiagonalHatching(CONFIG.OPERATION_COLORS.symmetric);
+
+                // Cut out the intersection
+                ctx.save();
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.beginPath();
+                ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            };
+
+            /**
+             * Draw complement operation highlighting
+             */
+            const drawComplementHighlight = (circleA, circles) => {
+                const minX = Math.min(...circles.map(c => c.x - c.r)) - CONFIG.CANVAS_PADDING;
+                const maxX = Math.max(...circles.map(c => c.x + c.r)) + CONFIG.CANVAS_PADDING;
+                const minY = Math.min(...circles.map(c => c.y - c.r)) - CONFIG.CANVAS_PADDING;
+                const maxY = Math.max(...circles.map(c => c.y + c.r)) + CONFIG.CANVAS_PADDING;
+
+                ctx.rect(minX, minY, maxX - minX, maxY - minY);
+                ctx.clip();
+                drawDiagonalHatching(CONFIG.OPERATION_COLORS.complement);
+
+                // Cut out the circle
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                ctx.fill();
+            };
+
+            /**
+             * Calculate circle positions based on current state
+             * @returns {Array<Object>} Array of circle definitions
+             */
+            const calculateCirclePositions = () => {
+                const state = StateManager.getState();
+                const centerX = canvas.width / 2;
+                const centerY = (canvas.height - 60) / 2; // Leave space for status bar
+                const radius = Math.min(canvas.width, canvas.height - 120) / 4;
+
+                if (state.sets.length === 1) {
+                    return [{
+                        x: centerX,
+                        y: centerY,
+                        r: radius,
+                        name: state.sets[0].name,
+                        color: state.sets[0].color
+                    }];
+                }
+
+                if (state.sets.length === 2) {
+                    return calculateTwoSetPositions(centerX, centerY, radius);
+                }
+
+                if (state.sets.length === 3) {
+                    return calculateThreeSetPositions(centerX, centerY, radius);
+                }
+
+                if (state.sets.length === 4) {
+                    return calculateFourSetPositions(centerX, centerY, radius);
+                }
+
+                return [];
+            };
+
+            /**
+             * Calculate positions for two sets
+             */
+            const calculateTwoSetPositions = (centerX, centerY, radius) => {
+                const state = StateManager.getState();
                 const setA = state.sets[0];
                 const setB = state.sets[1];
 
                 // For Euler diagrams, handle special cases
                 if (state.diagramType === 'euler') {
-                    const aSubsetB = isSubset(setA, setB);
-                    const bSubsetA = isSubset(setB, setA);
+                    const aSubsetB = SetOps.isSubset(setA, setB);
+                    const bSubsetA = SetOps.isSubset(setB, setA);
 
                     if (aSubsetB && bSubsetA) {
                         // Equal sets - draw as single overlapping circle
@@ -1508,7 +2259,7 @@
                             { x: centerX, y: centerY, r: radius * 0.6, name: setA.name, color: setA.color },
                             { x: centerX, y: centerY, r: radius, name: setB.name, color: setB.color }
                         ];
-                    } else if (!setsIntersect(setA, setB)) {
+                    } else if (!SetOps.setsIntersect(setA, setB)) {
                         // Disjoint sets - separate circles
                         const offset = radius * 2.2;
                         return [
@@ -1524,85 +2275,60 @@
                     { x: centerX - offset, y: centerY, r: radius, name: setA.name, color: setA.color },
                     { x: centerX + offset, y: centerY, r: radius, name: setB.name, color: setB.color }
                 ];
-            } else if (state.sets.length === 3) {
+            };
+
+            /**
+             * Calculate positions for three sets
+             */
+            const calculateThreeSetPositions = (centerX, centerY, radius) => {
+                const state = StateManager.getState();
+                const sets = state.sets;
+
                 if (state.diagramType === 'euler') {
-                    return calculateEulerThreeSetPositions(centerX, centerY, radius);
-                } else {
-                    const offset = radius * 0.7;
-                    return [
-                        { x: centerX - offset, y: centerY - offset * 0.5, r: radius, name: state.sets[0].name, color: state.sets[0].color },
-                        { x: centerX + offset, y: centerY - offset * 0.5, r: radius, name: state.sets[1].name, color: state.sets[1].color },
-                        { x: centerX, y: centerY + offset * 0.7, r: radius, name: state.sets[2].name, color: state.sets[2].color }
-                    ];
+                    const ab = SetOps.setsIntersect(sets[0], sets[1]);
+                    const ac = SetOps.setsIntersect(sets[0], sets[2]);
+                    const bc = SetOps.setsIntersect(sets[1], sets[2]);
+
+                    // If no intersections at all, arrange in a line
+                    if (!ab && !ac && !bc) {
+                        return [
+                            { x: centerX - radius * 2.5, y: centerY, r: radius, name: sets[0].name, color: sets[0].color },
+                            { x: centerX, y: centerY, r: radius, name: sets[1].name, color: sets[1].color },
+                            { x: centerX + radius * 2.5, y: centerY, r: radius, name: sets[2].name, color: sets[2].color }
+                        ];
+                    }
                 }
-            } else if (state.sets.length === 4) {
+
+                // Standard Venn layout
+                const offset = radius * 0.7;
+                return [
+                    { x: centerX - offset, y: centerY - offset * 0.5, r: radius, name: sets[0].name, color: sets[0].color },
+                    { x: centerX + offset, y: centerY - offset * 0.5, r: radius, name: sets[1].name, color: sets[1].color },
+                    { x: centerX, y: centerY + offset * 0.7, r: radius, name: sets[2].name, color: sets[2].color }
+                ];
+            };
+
+            /**
+             * Calculate positions for four sets
+             */
+            const calculateFourSetPositions = (centerX, centerY, radius) => {
+                const state = StateManager.getState();
+                const sets = state.sets;
+
                 if (state.diagramType === 'euler') {
-                    return calculateEulerFourSetPositions(centerX, centerY, radius);
-                } else {
-                    const offset = radius * 0.6;
-                    return [
-                        { x: centerX - offset, y: centerY - offset, r: radius, name: state.sets[0].name, color: state.sets[0].color },
-                        { x: centerX + offset, y: centerY - offset, r: radius, name: state.sets[1].name, color: state.sets[1].color },
-                        { x: centerX - offset, y: centerY + offset, r: radius, name: state.sets[2].name, color: state.sets[2].color },
-                        { x: centerX + offset, y: centerY + offset, r: radius, name: state.sets[3].name, color: state.sets[3].color }
+                    // Check all pairwise intersections
+                    const intersections = [
+                        SetOps.setsIntersect(sets[0], sets[1]),
+                        SetOps.setsIntersect(sets[0], sets[2]),
+                        SetOps.setsIntersect(sets[0], sets[3]),
+                        SetOps.setsIntersect(sets[1], sets[2]),
+                        SetOps.setsIntersect(sets[1], sets[3]),
+                        SetOps.setsIntersect(sets[2], sets[3])
                     ];
-                }
-            }
-        }
 
-        function calculateEulerThreeSetPositions(centerX, centerY, radius) {
-            const sets = state.sets;
-            const ab = setsIntersect(sets[0], sets[1]);
-            const ac = setsIntersect(sets[0], sets[2]);
-            const bc = setsIntersect(sets[1], sets[2]);
-
-            // If no intersections at all, arrange in a line
-            if (!ab && !ac && !bc) {
-                return [
-                    { x: centerX - radius * 2.5, y: centerY, r: radius, name: sets[0].name, color: sets[0].color },
-                    { x: centerX, y: centerY, r: radius, name: sets[1].name, color: sets[1].color },
-                    { x: centerX + radius * 2.5, y: centerY, r: radius, name: sets[2].name, color: sets[2].color }
-                ];
-            }
-
-            // Use standard Venn layout if there are intersections (simplified for now)
-            const offset = radius * 0.7;
-            return [
-                { x: centerX - offset, y: centerY - offset * 0.5, r: radius, name: sets[0].name, color: sets[0].color },
-                { x: centerX + offset, y: centerY - offset * 0.5, r: radius, name: sets[1].name, color: sets[1].color },
-                { x: centerX, y: centerY + offset * 0.7, r: radius, name: sets[2].name, color: sets[2].color }
-            ];
-        }
-
-        function calculateEulerFourSetPositions(centerX, centerY, radius) {
-            const sets = state.sets;
-
-            // Check all pairwise intersections
-            const ab = setsIntersect(sets[0], sets[1]);
-            const ac = setsIntersect(sets[0], sets[2]);
-            const ad = setsIntersect(sets[0], sets[3]);
-            const bc = setsIntersect(sets[1], sets[2]);
-            const bd = setsIntersect(sets[1], sets[3]);
-            const cd = setsIntersect(sets[2], sets[3]);
-
-            // If no intersections at all, arrange in a 2x2 grid with separation
-            if (!ab && !ac && !ad && !bc && !bd && !cd) {
-                const offset = radius * 2.5;
-                return [
-                    { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
-                    { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
-                    { x: centerX - offset, y: centerY + offset, r: radius, name: sets[2].name, color: sets[2].color },
-                    { x: centerX + offset, y: centerY + offset, r: radius, name: sets[3].name, color: sets[3].color }
-                ];
-            }
-
-            // Check for subset relationships - if any set is a subset of another, handle specially
-            for (let i = 0; i < 4; i++) {
-                for (let j = 0; j < 4; j++) {
-                    if (i !== j && isSubset(sets[i], sets[j])) {
-                        // Found a subset relationship, fall back to Venn for now
-                        // (Full implementation would nest the circles properly)
-                        const offset = radius * 0.6;
+                    // If no intersections at all, arrange in a 2x2 grid with separation
+                    if (!intersections.some(Boolean)) {
+                        const offset = radius * 2.5;
                         return [
                             { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
                             { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
@@ -1611,201 +2337,223 @@
                         ];
                     }
                 }
-            }
 
-            // Use standard Venn layout for partial overlaps
-            const offset = radius * 0.6;
-            return [
-                { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
-                { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
-                { x: centerX - offset, y: centerY + offset, r: radius, name: sets[2].name, color: sets[2].color },
-                { x: centerX + offset, y: centerY + offset, r: radius, name: sets[3].name, color: sets[3].color }
-            ];
-        }
+                // Standard Venn layout
+                const offset = radius * 0.6;
+                return [
+                    { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
+                    { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
+                    { x: centerX - offset, y: centerY + offset, r: radius, name: sets[2].name, color: sets[2].color },
+                    { x: centerX + offset, y: centerY + offset, r: radius, name: sets[3].name, color: sets[3].color }
+                ];
+            };
 
-        function drawTwoSetElements(circles) {
-            const setA = state.sets[0];
-            const setB = state.sets[1];
+            /**
+             * Draw elements for two-set diagram
+             * @param {Array<Object>} circles - Circle definitions
+             */
+            const drawTwoSetElements = (circles) => {
+                const state = StateManager.getState();
+                const setA = state.sets[0];
+                const setB = state.sets[1];
 
-            // Check if circles are nested (same center, different radii)
-            const isNested = circles[0].x === circles[1].x &&
-                            circles[0].y === circles[1].y &&
-                            circles[0].r !== circles[1].r;
+                // Check if circles are nested (same center, different radii)
+                const isNested = circles[0].x === circles[1].x &&
+                                circles[0].y === circles[1].y &&
+                                circles[0].r !== circles[1].r;
 
-            if (isNested) {
-                // Nested circles - one set is subset of another
-                const outerCircle = circles[0].r > circles[1].r ? circles[0] : circles[1];
-                const innerCircle = circles[0].r > circles[1].r ? circles[1] : circles[0];
-                const outerSet = circles[0].r > circles[1].r ? setA : setB;
-                const innerSet = circles[0].r > circles[1].r ? setB : setA;
+                if (isNested) {
+                    // Nested circles - one set is subset of another
+                    const outerCircle = circles[0].r > circles[1].r ? circles[0] : circles[1];
+                    const innerCircle = circles[0].r > circles[1].r ? circles[1] : circles[0];
+                    const outerSet = circles[0].r > circles[1].r ? setA : setB;
+                    const innerSet = circles[0].r > circles[1].r ? setB : setA;
 
-                // Elements only in outer set (the ring)
-                const outerOnly = [...outerSet.elements].filter(x => !innerSet.elements.has(x));
-                const ringRadius = (outerCircle.r + innerCircle.r) / 2;
-                drawElementList(outerOnly, outerCircle.x, outerCircle.y - ringRadius * 0.5);
+                    // Elements only in outer set (the ring)
+                    const outerOnly = SetOps.difference(outerSet.elements, innerSet.elements);
+                    const ringRadius = (outerCircle.r + innerCircle.r) / 2;
+                    drawElementList(Array.from(outerOnly), outerCircle.x, outerCircle.y - ringRadius * 0.5);
 
-                // All elements of inner set (it's completely inside outer)
-                drawElementList([...innerSet.elements], innerCircle.x, innerCircle.y);
-            } else {
-                // Side-by-side circles (standard Venn)
+                    // All elements of inner set (it's completely inside outer)
+                    drawElementList(Array.from(innerSet.elements), innerCircle.x, innerCircle.y);
+                } else {
+                    // Side-by-side circles (standard Venn)
+                    // A only
+                    const aOnly = SetOps.difference(setA.elements, setB.elements);
+                    drawElementList(Array.from(aOnly), circles[0].x - circles[0].r * 0.4, circles[0].y);
+
+                    // A ∩ B
+                    const intersection = SetOps.intersection(setA.elements, setB.elements);
+                    drawElementList(
+                        Array.from(intersection),
+                        (circles[0].x + circles[1].x) / 2,
+                        (circles[0].y + circles[1].y) / 2
+                    );
+
+                    // B only
+                    const bOnly = SetOps.difference(setB.elements, setA.elements);
+                    drawElementList(Array.from(bOnly), circles[1].x + circles[1].r * 0.4, circles[1].y);
+                }
+            };
+
+            /**
+             * Draw elements for three-set diagram
+             * @param {Array<Object>} circles - Circle definitions
+             */
+            const drawThreeSetElements = (circles) => {
+                const state = StateManager.getState();
+                const setA = state.sets[0];
+                const setB = state.sets[1];
+                const setC = state.sets[2];
+
                 // A only
-                const aOnly = [...setA.elements].filter(x => !setB.elements.has(x));
-                drawElementList(aOnly, circles[0].x - circles[0].r * 0.4, circles[0].y);
-
-                // A ∩ B
-                const intersection = [...setA.elements].filter(x => setB.elements.has(x));
-                drawElementList(intersection, (circles[0].x + circles[1].x) / 2, (circles[0].y + circles[1].y) / 2);
+                const aOnly = Array.from(setA.elements).filter(
+                    x => !setB.elements.has(x) && !setC.elements.has(x)
+                );
+                drawElementList(aOnly, circles[0].x - circles[0].r * 0.5, circles[0].y - circles[0].r * 0.3);
 
                 // B only
-                const bOnly = [...setB.elements].filter(x => !setA.elements.has(x));
-                drawElementList(bOnly, circles[1].x + circles[1].r * 0.4, circles[1].y);
-            }
-        }
+                const bOnly = Array.from(setB.elements).filter(
+                    x => !setA.elements.has(x) && !setC.elements.has(x)
+                );
+                drawElementList(bOnly, circles[1].x + circles[1].r * 0.5, circles[1].y - circles[1].r * 0.3);
 
-        function drawThreeSetElements(circles) {
-            const setA = state.sets[0];
-            const setB = state.sets[1];
-            const setC = state.sets[2];
+                // C only
+                const cOnly = Array.from(setC.elements).filter(
+                    x => !setA.elements.has(x) && !setB.elements.has(x)
+                );
+                drawElementList(cOnly, circles[2].x, circles[2].y + circles[2].r * 0.5);
 
-            // A only
-            const aOnly = [...setA.elements].filter(x => !setB.elements.has(x) && !setC.elements.has(x));
-            drawElementList(aOnly, circles[0].x - circles[0].r * 0.5, circles[0].y - circles[0].r * 0.3);
+                // A ∩ B only
+                const abOnly = Array.from(setA.elements).filter(
+                    x => setB.elements.has(x) && !setC.elements.has(x)
+                );
+                drawElementList(
+                    abOnly,
+                    (circles[0].x + circles[1].x) / 2,
+                    (circles[0].y + circles[1].y) / 2 - circles[0].r * 0.3
+                );
 
-            // B only
-            const bOnly = [...setB.elements].filter(x => !setA.elements.has(x) && !setC.elements.has(x));
-            drawElementList(bOnly, circles[1].x + circles[1].r * 0.5, circles[1].y - circles[1].r * 0.3);
+                // A ∩ C only
+                const acOnly = Array.from(setA.elements).filter(
+                    x => setC.elements.has(x) && !setB.elements.has(x)
+                );
+                drawElementList(
+                    acOnly,
+                    (circles[0].x + circles[2].x) / 2 - circles[0].r * 0.2,
+                    (circles[0].y + circles[2].y) / 2
+                );
 
-            // C only
-            const cOnly = [...setC.elements].filter(x => !setA.elements.has(x) && !setB.elements.has(x));
-            drawElementList(cOnly, circles[2].x, circles[2].y + circles[2].r * 0.5);
+                // B ∩ C only
+                const bcOnly = Array.from(setB.elements).filter(
+                    x => setC.elements.has(x) && !setA.elements.has(x)
+                );
+                drawElementList(
+                    bcOnly,
+                    (circles[1].x + circles[2].x) / 2 + circles[1].r * 0.2,
+                    (circles[1].y + circles[2].y) / 2
+                );
 
-            // A ∩ B only
-            const abOnly = [...setA.elements].filter(x => setB.elements.has(x) && !setC.elements.has(x));
-            drawElementList(abOnly, (circles[0].x + circles[1].x) / 2, (circles[0].y + circles[1].y) / 2 - circles[0].r * 0.3);
+                // A ∩ B ∩ C
+                const abc = Array.from(setA.elements).filter(
+                    x => setB.elements.has(x) && setC.elements.has(x)
+                );
+                drawElementList(
+                    abc,
+                    (circles[0].x + circles[1].x + circles[2].x) / 3,
+                    (circles[0].y + circles[1].y + circles[2].y) / 3
+                );
+            };
 
-            // A ∩ C only
-            const acOnly = [...setA.elements].filter(x => setC.elements.has(x) && !setB.elements.has(x));
-            drawElementList(acOnly, (circles[0].x + circles[2].x) / 2 - circles[0].r * 0.2, (circles[0].y + circles[2].y) / 2);
-
-            // B ∩ C only
-            const bcOnly = [...setB.elements].filter(x => setC.elements.has(x) && !setA.elements.has(x));
-            drawElementList(bcOnly, (circles[1].x + circles[2].x) / 2 + circles[1].r * 0.2, (circles[1].y + circles[2].y) / 2);
-
-            // A ∩ B ∩ C
-            const abc = [...setA.elements].filter(x => setB.elements.has(x) && setC.elements.has(x));
-            drawElementList(abc, (circles[0].x + circles[1].x + circles[2].x) / 3, (circles[0].y + circles[1].y + circles[2].y) / 3);
-        }
-
-        function drawElementList(elements, x, y) {
-            let text;
-            if (elements.length === 0) {
-                text = '∅';
-            } else if (elements.length <= 5) {
-                text = elements.join(', ');
-            } else {
-                text = `${elements.length} elem`;
-            }
-
-            ctx.fillStyle = '#374151';
-            ctx.font = '14px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(text, x, y);
-        }
-
-
-        // Mouse interaction
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-
-            const circles = calculateCirclePositions();
-            const insideSets = [];
-
-            circles.forEach((circle, idx) => {
-                const dx = x - circle.x;
-                const dy = y - circle.y;
-                if (dx * dx + dy * dy <= circle.r * circle.r) {
-                    insideSets.push(idx);
-                }
-            });
-
-            if (insideSets.length > 0) {
-                const region = calculateRegionInfo(insideSets);
-                state.hoveredRegion = { sets: insideSets, ...region };
-
-                // Set content and make visible first
-                tooltip.textContent = `${region.description}\n${region.elementsText}`;
-                tooltip.classList.add('visible');
-
-                // Smart positioning with viewport awareness
-                const tooltipRect = tooltip.getBoundingClientRect();
-                const offset = 8;
-                const padding = 10;
-
-                // Use canvas-relative coordinates, then convert to viewport
-                let left = rect.left + x + offset;
-                let top = rect.top + y + offset;
-
-                // Check boundaries and flip if needed
-                if (left + tooltipRect.width + padding > window.innerWidth) {
-                    left = rect.left + x - tooltipRect.width - offset;
-                }
-                if (top + tooltipRect.height + padding > window.innerHeight) {
-                    top = rect.top + y - tooltipRect.height - offset;
+            /**
+             * Draw list of elements at specified position
+             * @param {Array<string>} elements - Elements to display
+             * @param {number} x - X coordinate
+             * @param {number} y - Y coordinate
+             */
+            const drawElementList = (elements, x, y) => {
+                let text;
+                if (elements.length === 0) {
+                    text = '∅';
+                } else if (elements.length <= CONFIG.ELEMENT_DISPLAY_THRESHOLD) {
+                    text = elements.join(', ');
+                } else {
+                    text = `${elements.length} elem`;
                 }
 
-                // Clamp to viewport to ensure always visible
-                left = Math.max(padding, Math.min(left, window.innerWidth - tooltipRect.width - padding));
-                top = Math.max(padding, Math.min(top, window.innerHeight - tooltipRect.height - padding));
+                ctx.fillStyle = '#374151';
+                ctx.font = CONFIG.FONT_SIZE.element;
+                ctx.textAlign = 'center';
+                ctx.fillText(text, x, y);
+            };
 
-                tooltip.style.left = left + 'px';
-                tooltip.style.top = top + 'px';
-            } else {
-                state.hoveredRegion = null;
-                tooltip.classList.remove('visible');
-            }
+            /**
+             * Calculate region info for tooltip
+             * @param {Array<number>} insideSets - Indices of sets the point is inside
+             * @returns {Object} Region description and elements
+             */
+            const calculateRegionInfo = (insideSets) => {
+                const state = StateManager.getState();
 
-            drawVennDiagram();
-        });
-
-        canvas.addEventListener('mouseleave', () => {
-            state.hoveredRegion = null;
-            tooltip.classList.remove('visible');
-            drawVennDiagram();
-        });
-
-        function calculateRegionInfo(insideSets) {
-            // Get all elements that are in all the inside sets
-            let elements = new Set(state.sets[insideSets[0]].elements);
-            for (let i = 1; i < insideSets.length; i++) {
-                elements = new Set([...elements].filter(x => state.sets[insideSets[i]].elements.has(x)));
-            }
-
-            // Remove elements that are in sets we're NOT inside
-            for (let i = 0; i < state.sets.length; i++) {
-                if (!insideSets.includes(i)) {
-                    elements = new Set([...elements].filter(x => !state.sets[i].elements.has(x)));
+                // Get all elements that are in all the inside sets
+                let elements = new Set(state.sets[insideSets[0]].elements);
+                for (let i = 1; i < insideSets.length; i++) {
+                    elements = SetOps.intersection(elements, state.sets[insideSets[i]].elements);
                 }
-            }
 
-            const elementsArray = Array.from(elements);
-            const elementsText = elementsArray.length === 0 ? '∅ (empty)' :
-                                 elementsArray.length <= 5 ? `{${elementsArray.join(', ')}}` :
-                                 `${elementsArray.length} elements`;
+                // Remove elements that are in sets we're NOT inside
+                for (let i = 0; i < state.sets.length; i++) {
+                    if (!insideSets.includes(i)) {
+                        elements = SetOps.difference(elements, state.sets[i].elements);
+                    }
+                }
 
-            let description;
-            if (insideSets.length === 1) {
-                description = state.sets.length > 1 ? `${state.sets[insideSets[0]].name} ${translations[currentLang].only}` : state.sets[insideSets[0]].name;
-            } else {
-                description = insideSets.map(i => state.sets[i].name).join(' ∩ ');
-            }
+                const elementsArray = Array.from(elements);
+                const elementsText = elementsArray.length === 0 ? '∅ (empty)' :
+                                     elementsArray.length <= CONFIG.ELEMENT_DISPLAY_THRESHOLD ? `{${elementsArray.join(', ')}}` :
+                                     `${elementsArray.length} elements`;
 
-            return { description, elementsText };
-        }
+                let description;
+                if (insideSets.length === 1) {
+                    description = state.sets.length > 1 ?
+                        `${state.sets[insideSets[0]].name} ${I18n.translate('only')}` :
+                        state.sets[insideSets[0]].name;
+                } else {
+                    description = insideSets.map(i => state.sets[i].name).join(' ∩ ');
+                }
 
-        // Initialize language on page load
-        setLanguage(currentLang);
+                return { description, elementsText };
+            };
+
+            /**
+             * Get circles currently inside point (for hover detection)
+             * @param {number} x - X coordinate
+             * @param {number} y - Y coordinate
+             * @returns {Array<number>} Indices of circles containing the point
+             */
+            const getCirclesAtPoint = (x, y) => {
+                const circles = calculateCirclePositions();
+                const insideSets = [];
+
+                circles.forEach((circle, idx) => {
+                    if (Utils.isPointInCircle(x, y, circle)) {
+                        insideSets.push(idx);
+                    }
+                });
+
+                return insideSets;
+            };
+
+            return {
+                init,
+                draw,
+                calculateRegionInfo,
+                getCirclesAtPoint
+            };
+        })();
+
+        // Initialize application when DOM is ready
+        App.init();
     </script>
 </body>
 </html>
