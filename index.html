@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Venn Diagram Builder</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f9fafb;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 320px;
+            background: white;
+            border-right: 1px solid #e5e7eb;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        h1 {
+            font-size: 20px;
+            margin-bottom: 24px;
+            color: #111827;
+        }
+
+        .section {
+            margin-bottom: 24px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+
+        .diagram-type-selector {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+
+        .diagram-type-selector label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            color: #374151;
+            cursor: pointer;
+        }
+
+        .diagram-type-selector input[type="radio"] {
+            cursor: pointer;
+        }
+
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #6366f1;
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            background: #4f46e5;
+        }
+
+        .operations {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .op-button {
+            height: 56px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            gap: 2px;
+        }
+
+        .op-button .symbol {
+            font-size: 28px;
+            font-weight: normal;
+            line-height: 1;
+        }
+
+        .op-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .op-union { background: #22c55e; }
+        .op-intersection { background: #6366f1; }
+        .op-difference { background: #ef4444; }
+        .op-symmetric { background: #fb923c; }
+        .op-complement { background: #8b5cf6; }
+
+        .set-list {
+            list-style: none;
+        }
+
+        .set-item {
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .set-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .set-info {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .set-name {
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .set-elements {
+            color: #6b7280;
+            font-size: 13px;
+            margin-top: 2px;
+        }
+
+        .btn-remove {
+            background: #ef4444;
+            color: white;
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        .main-canvas {
+            flex: 1;
+            position: relative;
+            background: white;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(30, 30, 40, 0.95);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 1000;
+            white-space: pre-line;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            max-width: 300px;
+            word-wrap: break-word;
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+        }
+
+        .status-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 12px 24px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            font-size: 14px;
+        }
+
+        .examples {
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+
+        .examples code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        /* Cheat Sheet Styles */
+        .cheat-sheet-container {
+            margin-top: 8px;
+        }
+
+        details {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 0;
+            background: white;
+        }
+
+        summary {
+            cursor: pointer;
+            padding: 10px 12px;
+            font-weight: 600;
+            font-size: 14px;
+            color: #374151;
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        summary::-webkit-details-marker {
+            display: none;
+        }
+
+        summary::before {
+            content: '▶';
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        details[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        summary:hover {
+            background: #f9fafb;
+        }
+
+        .cheat-sheet-content {
+            padding: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .formula-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .formula-table th {
+            background: #f9fafb;
+            padding: 8px 6px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+            position: sticky;
+            top: 0;
+        }
+
+        .formula-table td {
+            padding: 6px;
+            border-bottom: 1px solid #f3f4f6;
+            vertical-align: top;
+        }
+
+        .formula-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .formula-table .formula {
+            font-family: 'Courier New', monospace;
+            color: #6366f1;
+            font-size: 13px;
+        }
+
+        .formula-table .law-name {
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 4px;
+        }
+
+        .formula-table .law-name-uk {
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 4px;
+        }
+
+        /* Language Switcher Styles */
+        .language-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 8px;
+            background: #f9fafb;
+            border-radius: 8px;
+            justify-content: center;
+        }
+
+        .language-selector button {
+            flex: 1;
+            padding: 6px 12px;
+            border: 1px solid #d1d5db;
+            background: white;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .language-selector button:hover {
+            background: #f3f4f6;
+        }
+
+        .language-selector button.active {
+            background: #6366f1;
+            color: white;
+            border-color: #6366f1;
+        }
+
+        /* ===== RESPONSIVE DESIGN ===== */
+
+        /* Mobile devices (< 768px) */
+        @media (max-width: 767px) {
+            body {
+                flex-direction: column;
+                overflow-y: auto;
+                height: auto;
+                min-height: 100vh;
+            }
+
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #e5e7eb;
+                padding: 16px;
+                max-height: none;
+                overflow-y: visible;
+            }
+
+            h1 {
+                font-size: 18px;
+                margin-bottom: 16px;
+            }
+
+            .section {
+                margin-bottom: 16px;
+            }
+
+            .section-title {
+                font-size: 13px;
+            }
+
+            /* Single column operation buttons for easier touch */
+            .operations {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            /* Larger touch targets */
+            .op-button {
+                height: 64px;
+            }
+
+            button {
+                padding: 12px 20px;
+                font-size: 16px;
+                min-height: 44px; /* iOS recommended minimum */
+            }
+
+            .btn-remove {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+
+            input[type="text"] {
+                font-size: 16px; /* Prevent zoom on iOS */
+                padding: 10px 12px;
+            }
+
+            .main-canvas {
+                min-height: 400px;
+                flex: none;
+                height: 50vh;
+            }
+
+            .status-bar {
+                position: relative;
+                padding: 12px 16px;
+                font-size: 13px;
+            }
+
+            .examples {
+                font-size: 11px;
+            }
+
+            .set-item {
+                padding: 10px;
+            }
+
+            .tooltip {
+                font-size: 12px;
+                max-width: 250px;
+            }
+
+            /* Mobile cheat sheet adjustments */
+            .formula-table {
+                font-size: 11px;
+            }
+
+            .formula-table th {
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+
+            .formula-table td {
+                padding: 4px;
+            }
+
+            .formula-table .formula {
+                font-size: 11px;
+            }
+
+            .cheat-sheet-content {
+                max-height: 300px;
+                padding: 8px;
+            }
+
+            summary {
+                font-size: 13px;
+                padding: 8px 10px;
+            }
+        }
+
+        /* Tablet devices (768px - 1023px) */
+        @media (min-width: 768px) and (max-width: 1023px) {
+            .sidebar {
+                width: 280px;
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 19px;
+                margin-bottom: 20px;
+            }
+
+            .section {
+                margin-bottom: 20px;
+            }
+
+            .op-button {
+                height: 60px;
+            }
+
+            button {
+                padding: 10px 18px;
+            }
+        }
+
+        /* Large desktop (1440px+) */
+        @media (min-width: 1440px) {
+            .sidebar {
+                width: 360px;
+                padding: 28px;
+            }
+
+            h1 {
+                font-size: 22px;
+                margin-bottom: 28px;
+            }
+
+            .section {
+                margin-bottom: 28px;
+            }
+
+            .section-title {
+                font-size: 15px;
+            }
+
+            button {
+                font-size: 15px;
+            }
+
+            .tooltip {
+                font-size: 14px;
+            }
+        }
+
+        /* Landscape mobile phones */
+        @media (max-width: 767px) and (orientation: landscape) {
+            .sidebar {
+                max-height: 40vh;
+                overflow-y: auto;
+            }
+
+            .main-canvas {
+                height: 60vh;
+            }
+        }
+
+        /* Print styles */
+        @media print {
+            .sidebar {
+                display: none;
+            }
+
+            .main-canvas {
+                width: 100%;
+            }
+
+            .status-bar {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h1 data-i18n="title">Venn Diagram Builder</h1>
+
+        <div class="language-selector">
+            <button onclick="setLanguage('en')" id="lang-en" class="active">English</button>
+            <button onclick="setLanguage('uk')" id="lang-uk">Українська</button>
+        </div>
+
+        <div class="diagram-type-selector">
+            <label>
+                <input type="radio" name="diagramType" value="venn" checked onchange="changeDiagramType('venn')">
+                <span data-i18n="vennDiagram">Venn Diagram</span>
+            </label>
+            <label>
+                <input type="radio" name="diagramType" value="euler" onchange="changeDiagramType('euler')">
+                <span data-i18n="eulerDiagram">Euler Diagram</span>
+            </label>
+        </div>
+
+        <div class="section">
+            <div class="section-title" data-i18n="input">Input</div>
+            <div class="input-group">
+                <input type="text" id="inputField" data-i18n-placeholder="inputPlaceholder" placeholder="e.g., A={1,2,3} or A ∪ B">
+                <button class="btn-primary" onclick="executeInput()" data-i18n="execute">Execute</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title" data-i18n="quickOperations">Quick Operations</div>
+            <div class="operations">
+                <button class="op-button op-union" onclick="insertOperation('union')">
+                    <span class="symbol">∪</span>
+                    <span data-i18n="union">Union</span>
+                </button>
+                <button class="op-button op-intersection" onclick="insertOperation('intersection')">
+                    <span class="symbol">∩</span>
+                    <span data-i18n="intersect">Intersect</span>
+                </button>
+                <button class="op-button op-difference" onclick="insertOperation('difference')">
+                    <span class="symbol">\</span>
+                    <span data-i18n="difference">Difference</span>
+                </button>
+                <button class="op-button op-symmetric" onclick="insertOperation('symmetric')">
+                    <span class="symbol">△</span>
+                    <span data-i18n="symDiff">Sym Diff</span>
+                </button>
+                <button class="op-button op-complement" onclick="insertOperation('complement')">
+                    <span class="symbol">A̅</span>
+                    <span data-i18n="complement">Complement</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title" data-i18n="sets">Sets</div>
+            <ul class="set-list" id="setList"></ul>
+            <div class="input-group">
+                <input type="text" id="newSetName" data-i18n-placeholder="newSetNamePlaceholder" placeholder="New set name">
+                <button class="btn-primary" onclick="addEmptySet()" data-i18n="addSet">+ Add Set</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title" data-i18n="examples">Examples</div>
+            <div class="examples" id="examplesContent">
+                Set definition:<br>
+                <code>A={1,2,3}</code><br>
+                Operations:<br>
+                <code>A ∪ B</code> (union)<br>
+                <code>A ∩ B</code> (intersection)<br>
+                <code>A \ B</code> (difference)<br>
+                <code>A̅</code> (complement)
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title" data-i18n="formulas">Formulas</div>
+            <div class="cheat-sheet-container">
+                <details>
+                    <summary data-i18n="algebraOfSets">Algebra of Sets</summary>
+                    <div class="cheat-sheet-content">
+                        <table class="formula-table">
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="identityLaws">Identity Laws</div>
+                                        <div class="formula">A ∪ ∅ = A</div>
+                                        <div class="formula">A ∩ U = A</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="dominationLaws">Domination Laws</div>
+                                        <div class="formula">A ∪ U = U</div>
+                                        <div class="formula">A ∩ ∅ = ∅</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="idempotentLaws">Idempotent Laws</div>
+                                        <div class="formula">A ∪ A = A</div>
+                                        <div class="formula">A ∩ A = A</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="complementLaws">Complement Laws</div>
+                                        <div class="formula">A ∪ A' = U</div>
+                                        <div class="formula">A ∩ A' = ∅</div>
+                                        <div class="formula">(A')' = A</div>
+                                        <div class="formula">U' = ∅</div>
+                                        <div class="formula">∅' = U</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="commutativeLaws">Commutative Laws</div>
+                                        <div class="formula">A ∪ B = B ∪ A</div>
+                                        <div class="formula">A ∩ B = B ∩ A</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="associativeLaws">Associative Laws</div>
+                                        <div class="formula">A ∪ (B ∪ C) = (A ∪ B) ∪ C</div>
+                                        <div class="formula">A ∩ (B ∩ C) = (A ∩ B) ∩ C</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="distributiveLaws">Distributive Laws</div>
+                                        <div class="formula">A ∪ (B ∩ C) = (A ∪ B) ∩ (A ∪ C)</div>
+                                        <div class="formula">A ∩ (B ∪ C) = (A ∩ B) ∪ (A ∩ C)</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="deMorganLaws">De Morgan's Laws</div>
+                                        <div class="formula">(A ∪ B)' = A' ∩ B'</div>
+                                        <div class="formula">(A ∩ B)' = A' ∪ B'</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="absorptionLaws">Absorption Laws</div>
+                                        <div class="formula">A ∪ (A ∩ B) = A</div>
+                                        <div class="formula">A ∩ (A ∪ B) = A</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="differenceLaws">Difference</div>
+                                        <div class="formula">A \ B = A ∩ B'</div>
+                                        <div class="formula">A \ (B ∪ C) = (A \ B) ∩ (A \ C)</div>
+                                        <div class="formula">A \ (B ∩ C) = (A \ B) ∪ (A \ C)</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="law-name" data-i18n="symmetricDifferenceLaws">Symmetric Difference</div>
+                                        <div class="formula">A △ B = (A \ B) ∪ (B \ A)</div>
+                                        <div class="formula">A △ B = (A ∪ B) \ (A ∩ B)</div>
+                                        <div class="formula">A △ B = B △ A</div>
+                                        <div class="formula">A △ ∅ = A</div>
+                                        <div class="formula">A △ A = ∅</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-canvas">
+        <canvas id="vennCanvas"></canvas>
+        <div class="tooltip" id="tooltip"></div>
+        <div class="status-bar" id="statusBar">Ready. Enter a set definition or operation.</div>
+    </div>
+
+    <script>
+        // Translations
+        const translations = {
+            en: {
+                title: "Venn Diagram Builder",
+                vennDiagram: "Venn Diagram",
+                eulerDiagram: "Euler Diagram",
+                input: "Input",
+                inputPlaceholder: "e.g., A={1,2,3} or A ∪ B",
+                execute: "Execute",
+                quickOperations: "Quick Operations",
+                union: "Union",
+                intersect: "Intersect",
+                difference: "Difference",
+                symDiff: "Sym Diff",
+                complement: "Complement",
+                sets: "Sets",
+                newSetNamePlaceholder: "New set name",
+                addSet: "+ Add Set",
+                examples: "Examples",
+                examplesContent: `Set definition:<br><code>A={1,2,3}</code><br>Operations:<br><code>A ∪ B</code> (union)<br><code>A ∩ B</code> (intersection)<br><code>A \\ B</code> (difference)<br><code>A̅</code> (complement)`,
+                formulas: "Formulas",
+                algebraOfSets: "Algebra of Sets",
+                identityLaws: "Identity Laws",
+                dominationLaws: "Domination Laws",
+                idempotentLaws: "Idempotent Laws",
+                complementLaws: "Complement Laws",
+                commutativeLaws: "Commutative Laws",
+                associativeLaws: "Associative Laws",
+                distributiveLaws: "Distributive Laws",
+                deMorganLaws: "De Morgan's Laws",
+                absorptionLaws: "Absorption Laws",
+                differenceLaws: "Difference",
+                symmetricDifferenceLaws: "Symmetric Difference",
+                readyStatus: "Ready. Enter a set definition or operation.",
+                updatedSet: "Updated set",
+                createdSet: "Created set",
+                maxSets: "Maximum 4 sets allowed",
+                setNotDefined: "not defined. Create it with",
+                setsNotDefined: "not defined. Create them first.",
+                removedSet: "Removed set",
+                addedEmptySet: "Added empty set",
+                setNameExists: "Set name already exists",
+                invalidSyntax: "Invalid syntax. Examples: A={1,2,3} or A ∪ B or A̅",
+                noChanges: "No changes to commit",
+                only: "only"
+            },
+            uk: {
+                title: "Конструктор діаграм Венна",
+                vennDiagram: "Діаграма Венна",
+                eulerDiagram: "Діаграма Ейлера",
+                input: "Введення",
+                inputPlaceholder: "напр., A={1,2,3} або A ∪ B",
+                execute: "Виконати",
+                quickOperations: "Швидкі операції",
+                union: "Об'єднання",
+                intersect: "Перетин",
+                difference: "Різниця",
+                symDiff: "Сим. різниця",
+                complement: "Доповнення",
+                sets: "Множини",
+                newSetNamePlaceholder: "Назва нової множини",
+                addSet: "+ Додати множину",
+                examples: "Приклади",
+                examplesContent: `Визначення множини:<br><code>A={1,2,3}</code><br>Операції:<br><code>A ∪ B</code> (об'єднання)<br><code>A ∩ B</code> (перетин)<br><code>A \\ B</code> (різниця)<br><code>A̅</code> (доповнення)`,
+                formulas: "Формули",
+                algebraOfSets: "Алгебра множин",
+                identityLaws: "Закони тотожності",
+                dominationLaws: "Закони домінування",
+                idempotentLaws: "Закони ідемпотентності",
+                complementLaws: "Закони доповнення",
+                commutativeLaws: "Закони комутативності",
+                associativeLaws: "Закони асоціативності",
+                distributiveLaws: "Закони дистрибутивності",
+                deMorganLaws: "Закони де Моргана",
+                absorptionLaws: "Закони поглинання",
+                differenceLaws: "Різниця множин",
+                symmetricDifferenceLaws: "Симетрична різниця",
+                readyStatus: "Готово. Введіть визначення множини або операцію.",
+                updatedSet: "Оновлено множину",
+                createdSet: "Створено множину",
+                maxSets: "Максимум 4 множини дозволено",
+                setNotDefined: "не визначена. Створіть її за допомогою",
+                setsNotDefined: "не визначені. Створіть їх спочатку.",
+                removedSet: "Видалено множину",
+                addedEmptySet: "Додано порожню множину",
+                setNameExists: "Назва множини вже існує",
+                invalidSyntax: "Неправильний синтаксис. Приклади: A={1,2,3} або A ∪ B або A̅",
+                noChanges: "Немає змін для фіксації",
+                only: "тільки"
+            }
+        };
+
+        // Current language
+        let currentLang = localStorage.getItem('language') || 'en';
+
+        // Set language function
+        function setLanguage(lang) {
+            currentLang = lang;
+            localStorage.setItem('language', lang);
+
+            // Update language buttons
+            document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+            document.getElementById('lang-uk').classList.toggle('active', lang === 'uk');
+
+            // Update all elements with data-i18n attribute
+            document.querySelectorAll('[data-i18n]').forEach(element => {
+                const key = element.getAttribute('data-i18n');
+                if (translations[lang][key]) {
+                    if (element.id === 'examplesContent') {
+                        element.innerHTML = translations[lang][key];
+                    } else {
+                        element.textContent = translations[lang][key];
+                    }
+                }
+            });
+
+            // Update placeholders
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+                const key = element.getAttribute('data-i18n-placeholder');
+                if (translations[lang][key]) {
+                    element.placeholder = translations[lang][key];
+                }
+            });
+
+            // Update status bar
+            setStatus(translations[lang].readyStatus, '#374151');
+
+            // Redraw diagram to update labels if needed
+            drawVennDiagram();
+        }
+
+        // Application state
+        const state = {
+            sets: [],
+            universalSet: new Set(), // U = union of all sets
+            resultElements: null,
+            resultDescription: '',
+            hoveredRegion: null,
+            currentOperation: null, // { type: 'union'|'intersection'|'difference'|'symmetric'|'complement', leftSet: index, rightSet: index }
+            diagramType: 'venn' // 'venn' or 'euler'
+        };
+
+        // Calculate universal set (union of all sets)
+        function updateUniversalSet() {
+            state.universalSet = new Set();
+            state.sets.forEach(set => {
+                set.elements.forEach(elem => {
+                    state.universalSet.add(elem);
+                });
+            });
+        }
+
+        const colors = [
+            [99, 102, 241],   // Indigo
+            [236, 72, 153],   // Pink
+            [34, 197, 94],    // Green
+            [251, 146, 60]    // Orange
+        ];
+
+        // Initialize with example sets
+        state.sets.push({
+            name: 'A',
+            elements: new Set(['1', '2', '3', '4']),
+            color: colors[0]
+        });
+
+        state.sets.push({
+            name: 'B',
+            elements: new Set(['3', '4', '5', '6']),
+            color: colors[1]
+        });
+
+        // Update universal set after initialization
+        updateUniversalSet();
+
+        // Canvas setup
+        const canvas = document.getElementById('vennCanvas');
+        const ctx = canvas.getContext('2d');
+        const tooltip = document.getElementById('tooltip');
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            drawVennDiagram();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Change diagram type
+        function changeDiagramType(type) {
+            state.diagramType = type;
+            drawVennDiagram();
+        }
+
+        // Update set list display
+        function updateSetList() {
+            const setList = document.getElementById('setList');
+            setList.innerHTML = '';
+
+            state.sets.forEach((set, index) => {
+                const li = document.createElement('li');
+                li.className = 'set-item';
+
+                const elementsArray = Array.from(set.elements);
+                const elementsStr = elementsArray.length <= 5
+                    ? `{${elementsArray.join(', ')}}`
+                    : `{${elementsArray.slice(0, 3).join(', ')}, ... (${elementsArray.length} total)}`;
+
+                li.innerHTML = `
+                    <div class="set-color" style="background: rgb(${set.color.join(',')})"></div>
+                    <div class="set-info" onclick="editSet(${index})" style="cursor: pointer;">
+                        <div class="set-name">${set.name} = ${elementsStr}</div>
+                    </div>
+                    <button class="btn-remove" onclick="removeSet(${index})">×</button>
+                `;
+                setList.appendChild(li);
+            });
+        }
+
+        function editSet(index) {
+            const set = state.sets[index];
+            const elementsArray = Array.from(set.elements);
+            const input = document.getElementById('inputField');
+            input.value = `${set.name}={${elementsArray.join(',')}}`;
+            input.focus();
+        }
+
+        updateSetList();
+
+        // Parse input
+        function executeInput() {
+            let input = document.getElementById('inputField').value.trim();
+            if (!input) return;
+
+            // Normalize whitespace: replace multiple spaces with single space
+            input = input.replace(/\s+/g, ' ');
+
+            // Try to parse as set definition: A={1,2,3}
+            const setDefMatch = input.match(/^([A-Za-z]+)\s*=\s*\{([^}]*)\}$/);
+            if (setDefMatch) {
+                const name = setDefMatch[1];
+                const elementsStr = setDefMatch[2].trim();
+                // Handle empty sets: filter out empty strings
+                const elements = elementsStr ? elementsStr.split(',').map(e => e.trim()).filter(e => e.length > 0) : [];
+
+                const existing = state.sets.find(s => s.name === name);
+                if (existing) {
+                    existing.elements = new Set(elements);
+                    setStatus(`${translations[currentLang].updatedSet} ${name}`, '#22c55e');
+                } else {
+                    if (state.sets.length >= 4) {
+                        setStatus(translations[currentLang].maxSets, '#ef4444');
+                        return;
+                    }
+                    state.sets.push({
+                        name: name,
+                        elements: new Set(elements),
+                        color: colors[state.sets.length]
+                    });
+                    setStatus(`${translations[currentLang].createdSet} ${name}`, '#22c55e');
+                }
+                document.getElementById('inputField').value = '';
+                state.currentOperation = null; // Clear operation when modifying sets
+                state.resultElements = null;
+                state.resultDescription = '';
+                updateUniversalSet();
+                updateSetList();
+                drawVennDiagram();
+                return;
+            }
+
+            // Try to parse as complement operation: A' or A̅ (with combining overline U+0305)
+            const complementMatch = input.match(/^([A-Za-z]+)['̅]$/);
+            if (complementMatch) {
+                const setName = complementMatch[1];
+                const setIndex = state.sets.findIndex(s => s.name === setName);
+
+                if (setIndex === -1) {
+                    setStatus(`${setName} ${translations[currentLang].setNotDefined} ${setName}={...}`, '#ef4444');
+                    return;
+                }
+
+                const targetSet = state.sets[setIndex];
+                // Calculate U \ A (universal set minus target set)
+                const result = new Set([...state.universalSet].filter(x => !targetSet.elements.has(x)));
+
+                state.resultElements = result;
+                state.resultDescription = `${setName}\u0305 = {${Array.from(result).join(', ')}}`;
+                state.currentOperation = { type: 'complement', leftSet: setIndex, rightSet: null };
+                setStatus(state.resultDescription, '#6366f1');
+                drawVennDiagram();
+                return;
+            }
+
+            // Try to parse as operation: A ∪ B, A ∩ B, etc.
+            const opMatch = input.match(/^([A-Za-z]+)\s*([∪∩\\△]|U)\s*([A-Za-z]+)$/);
+            if (opMatch) {
+                const left = opMatch[1];
+                const op = opMatch[2];
+                const right = opMatch[3];
+
+                const leftIndex = state.sets.findIndex(s => s.name === left);
+                const rightIndex = state.sets.findIndex(s => s.name === right);
+
+                if (leftIndex === -1 && rightIndex === -1) {
+                    setStatus(`${left}, ${right} ${translations[currentLang].setsNotDefined}`, '#ef4444');
+                    return;
+                } else if (leftIndex === -1) {
+                    setStatus(`${left} ${translations[currentLang].setNotDefined} ${left}={...}`, '#ef4444');
+                    return;
+                } else if (rightIndex === -1) {
+                    setStatus(`${right} ${translations[currentLang].setNotDefined} ${right}={...}`, '#ef4444');
+                    return;
+                }
+
+                const setA = state.sets[leftIndex];
+                const setB = state.sets[rightIndex];
+
+                let result;
+                let opName;
+                let opType;
+
+                if (op === '∪' || op === 'U') {
+                    result = new Set([...setA.elements, ...setB.elements]);
+                    opName = '∪';
+                    opType = 'union';
+                } else if (op === '∩') {
+                    result = new Set([...setA.elements].filter(x => setB.elements.has(x)));
+                    opName = '∩';
+                    opType = 'intersection';
+                } else if (op === '\\') {
+                    result = new Set([...setA.elements].filter(x => !setB.elements.has(x)));
+                    opName = '\\';
+                    opType = 'difference';
+                } else if (op === '△') {
+                    const diff1 = [...setA.elements].filter(x => !setB.elements.has(x));
+                    const diff2 = [...setB.elements].filter(x => !setA.elements.has(x));
+                    result = new Set([...diff1, ...diff2]);
+                    opName = '△';
+                    opType = 'symmetric';
+                }
+
+                state.resultElements = result;
+                state.resultDescription = `${left} ${opName} ${right} = {${Array.from(result).join(', ')}}`;
+                state.currentOperation = { type: opType, leftSet: leftIndex, rightSet: rightIndex };
+                setStatus(state.resultDescription, '#6366f1');
+                drawVennDiagram();
+                return;
+            }
+
+            setStatus(translations[currentLang].invalidSyntax, '#ef4444');
+        }
+
+        function insertOperation(type) {
+            const input = document.getElementById('inputField');
+            let currentValue = input.value.trim();
+
+            if (type === 'complement') {
+                // Append complement symbol (combining overline)
+                input.value = currentValue + '\u0305';
+            } else {
+                const symbols = {
+                    'union': '∪',
+                    'intersection': '∩',
+                    'difference': '\\',
+                    'symmetric': '△'
+                };
+
+                // Add space before symbol if needed
+                if (currentValue && !currentValue.endsWith(' ')) {
+                    currentValue += ' ';
+                }
+                // Append symbol with trailing space
+                input.value = currentValue + symbols[type] + ' ';
+            }
+
+            input.focus();
+        }
+
+        function addEmptySet() {
+            const name = document.getElementById('newSetName').value.trim();
+            if (!name) return;
+
+            if (state.sets.find(s => s.name === name)) {
+                setStatus(translations[currentLang].setNameExists, '#ef4444');
+                return;
+            }
+
+            if (state.sets.length >= 4) {
+                setStatus(translations[currentLang].maxSets, '#ef4444');
+                return;
+            }
+
+            state.sets.push({
+                name: name,
+                elements: new Set(),
+                color: colors[state.sets.length]
+            });
+
+            document.getElementById('newSetName').value = '';
+            state.currentOperation = null; // Clear operation when adding sets
+            state.resultElements = null;
+            state.resultDescription = '';
+            updateUniversalSet();
+            updateSetList();
+            drawVennDiagram();
+            setStatus(`${translations[currentLang].addedEmptySet} ${name}`, '#22c55e');
+        }
+
+        function removeSet(index) {
+            const removed = state.sets.splice(index, 1)[0];
+            state.currentOperation = null; // Clear operation when removing sets
+            state.resultElements = null;
+            state.resultDescription = '';
+            updateUniversalSet();
+            updateSetList();
+            drawVennDiagram();
+            setStatus(`${translations[currentLang].removedSet} ${removed.name}`, '#fb923c');
+        }
+
+        function setStatus(message, color) {
+            const statusBar = document.getElementById('statusBar');
+            statusBar.textContent = message;
+            statusBar.style.color = color;
+        }
+
+        // Enter key support
+        document.getElementById('inputField').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') executeInput();
+        });
+
+        document.getElementById('newSetName').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addEmptySet();
+        });
+
+        // Helper function to check if a point is in a circle
+        function isPointInCircle(x, y, circle) {
+            const dx = x - circle.x;
+            const dy = y - circle.y;
+            return dx * dx + dy * dy <= circle.r * circle.r;
+        }
+
+        // Check if a region (defined by which sets it's in) should be highlighted for current operation
+        function shouldHighlightRegion(insideSets) {
+            if (!state.currentOperation) return false;
+
+            const { type, leftSet, rightSet } = state.currentOperation;
+            const inLeft = insideSets.includes(leftSet);
+            const inRight = rightSet !== null ? insideSets.includes(rightSet) : false;
+
+            switch (type) {
+                case 'union':
+                    // Highlight any region that's in left OR right
+                    return inLeft || inRight;
+
+                case 'intersection':
+                    // Only highlight region that's in BOTH left AND right, and ONLY those two
+                    return inLeft && inRight && insideSets.length === 2 &&
+                           insideSets.every(i => i === leftSet || i === rightSet);
+
+                case 'difference':
+                    // Only highlight regions in left but NOT in right
+                    return inLeft && !inRight;
+
+                case 'symmetric':
+                    // Highlight regions in left OR right, but NOT both
+                    return (inLeft && !inRight) || (!inLeft && inRight);
+
+                case 'complement':
+                    // Highlight regions NOT in the specified set
+                    // This includes empty regions (insideSets.length === 0)
+                    return !inLeft;
+
+                default:
+                    return false;
+            }
+        }
+
+        // Draw diagonal hatching pattern for operation results
+        function drawDiagonalHatching(color, spacing = 8, lineWidth = 1.5) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+
+            const width = canvas.width;
+            const height = canvas.height;
+            const maxDim = width + height;
+
+            // Draw diagonal lines from top-left to bottom-right
+            for (let i = -maxDim; i < maxDim; i += spacing) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i + height, height);
+                ctx.stroke();
+            }
+        }
+
+        // Draw operation highlighting using hatching patterns
+        function drawOperationHighlight(circles) {
+            // First, draw all circles with strokes only (no fill)
+            circles.forEach((circle, idx) => {
+                ctx.strokeStyle = `rgb(${circle.color.join(',')})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Draw label
+                ctx.fillStyle = `rgb(${circle.color.join(',')})`;
+                ctx.font = 'bold 18px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(circle.name, circle.x, circle.y - circle.r - 10);
+            });
+
+            // Now draw hatched region based on operation type
+            if (!state.currentOperation) return;
+
+            const { type, leftSet, rightSet } = state.currentOperation;
+            const circleA = circles[leftSet];
+            const circleB = rightSet !== null ? circles[rightSet] : null;
+
+            // Define colors for each operation type (solid RGB for hatching)
+            const operationColors = {
+                'union': 'rgb(16, 185, 129)',       // Emerald green
+                'intersection': 'rgb(79, 70, 229)', // Deep indigo
+                'difference': 'rgb(220, 38, 38)',   // Rich red
+                'symmetric': 'rgb(245, 124, 0)',    // Vibrant orange
+                'complement': 'rgb(124, 58, 237)'   // Deep purple
+            };
+
+            ctx.save();
+
+            switch (type) {
+                case 'union':
+                    // Clip to union of both circles, then hatch
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    drawDiagonalHatching(operationColors.union);
+                    break;
+
+                case 'intersection':
+                    // Clip to first circle, then clip to second, then hatch
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    ctx.beginPath();
+                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    drawDiagonalHatching(operationColors.intersection);
+                    break;
+
+                case 'difference':
+                    // Clip to first circle, cut out second, then hatch
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    // Create a temporary canvas for cutting out circleB
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                    // Now hatch the remaining area
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    drawDiagonalHatching(operationColors.difference);
+                    break;
+
+                case 'symmetric':
+                    // Hatch both circles, then cut out intersection
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    drawDiagonalHatching(operationColors.symmetric);
+
+                    // Cut out the intersection
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.clip();
+                    ctx.beginPath();
+                    ctx.arc(circleB.x, circleB.y, circleB.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                    break;
+
+                case 'complement':
+                    // Clip to universal set rectangle, cut out circle, then hatch
+                    const padding = 40;
+                    const minX = Math.min(...circles.map(c => c.x - c.r)) - padding;
+                    const maxX = Math.max(...circles.map(c => c.x + c.r)) + padding;
+                    const minY = Math.min(...circles.map(c => c.y - c.r)) - padding;
+                    const maxY = Math.max(...circles.map(c => c.y + c.r)) + padding;
+
+                    ctx.rect(minX, minY, maxX - minX, maxY - minY);
+                    ctx.clip();
+                    drawDiagonalHatching(operationColors.complement);
+
+                    // Cut out the circle
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    ctx.arc(circleA.x, circleA.y, circleA.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+            }
+
+            ctx.restore();
+        }
+
+        // Draw universal set rectangle around circles
+        function drawUniversalSet(circles) {
+            if (circles.length === 0) return;
+
+            // Calculate bounding box for all circles
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+
+            circles.forEach(circle => {
+                minX = Math.min(minX, circle.x - circle.r);
+                maxX = Math.max(maxX, circle.x + circle.r);
+                minY = Math.min(minY, circle.y - circle.r);
+                maxY = Math.max(maxY, circle.y + circle.r);
+            });
+
+            // Add padding
+            const padding = 40;
+            minX -= padding;
+            maxX += padding;
+            minY -= padding;
+            maxY += padding;
+
+            // Draw rectangle
+            ctx.strokeStyle = '#9ca3af';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]);
+            ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+            ctx.setLineDash([]); // Reset dash
+
+            // Draw label "U" in top-left corner
+            ctx.fillStyle = '#6b7280';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('U', minX + 10, minY + 25);
+        }
+
+        // Drawing functions will be added in next part
+        function drawVennDiagram() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (state.sets.length === 0) {
+                ctx.fillStyle = '#6b7280';
+                ctx.font = '16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No sets defined. Add a set to get started!', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
+            const circles = calculateCirclePositions();
+
+            // Draw universal set rectangle
+            drawUniversalSet(circles);
+
+            // If there's an operation, draw regions with proper highlighting
+            if (state.currentOperation) {
+                drawOperationHighlight(circles);
+            } else {
+                // Draw circles with strokes only (no fill)
+                circles.forEach((circle, idx) => {
+                    ctx.strokeStyle = `rgb(${circle.color.join(',')})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    // Draw label
+                    ctx.fillStyle = `rgb(${circle.color.join(',')})`;
+                    ctx.font = 'bold 18px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(circle.name, circle.x, circle.y - circle.r - 10);
+                });
+            }
+
+            // Draw elements in regions
+            if (state.sets.length === 2) {
+                drawTwoSetElements(circles);
+            } else if (state.sets.length === 3) {
+                drawThreeSetElements(circles);
+            }
+
+            // Draw result if exists
+            if (state.resultElements) {
+                ctx.fillStyle = '#6366f1';
+                ctx.font = '16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(state.resultDescription, canvas.width / 2, canvas.height - 40);
+            }
+        }
+
+        // Check if two sets have any intersection
+        function setsIntersect(setA, setB) {
+            for (let elem of setA.elements) {
+                if (setB.elements.has(elem)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Check if setA is a subset of setB (all elements of setA are in setB)
+        function isSubset(setA, setB) {
+            for (let elem of setA.elements) {
+                if (!setB.elements.has(elem)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function calculateCirclePositions() {
+            const centerX = canvas.width / 2;
+            const centerY = (canvas.height - 60) / 2; // Leave space for status bar
+            const radius = Math.min(canvas.width, canvas.height - 120) / 4;
+
+            if (state.sets.length === 1) {
+                return [{
+                    x: centerX,
+                    y: centerY,
+                    r: radius,
+                    name: state.sets[0].name,
+                    color: state.sets[0].color
+                }];
+            } else if (state.sets.length === 2) {
+                const setA = state.sets[0];
+                const setB = state.sets[1];
+
+                // For Euler diagrams, handle special cases
+                if (state.diagramType === 'euler') {
+                    const aSubsetB = isSubset(setA, setB);
+                    const bSubsetA = isSubset(setB, setA);
+
+                    if (aSubsetB && bSubsetA) {
+                        // Equal sets - draw as single overlapping circle
+                        return [
+                            { x: centerX, y: centerY, r: radius, name: setA.name, color: setA.color },
+                            { x: centerX, y: centerY, r: radius, name: setB.name, color: setB.color }
+                        ];
+                    } else if (bSubsetA) {
+                        // B ⊂ A: B inside A
+                        return [
+                            { x: centerX, y: centerY, r: radius, name: setA.name, color: setA.color },
+                            { x: centerX, y: centerY, r: radius * 0.6, name: setB.name, color: setB.color }
+                        ];
+                    } else if (aSubsetB) {
+                        // A ⊂ B: A inside B
+                        return [
+                            { x: centerX, y: centerY, r: radius * 0.6, name: setA.name, color: setA.color },
+                            { x: centerX, y: centerY, r: radius, name: setB.name, color: setB.color }
+                        ];
+                    } else if (!setsIntersect(setA, setB)) {
+                        // Disjoint sets - separate circles
+                        const offset = radius * 2.2;
+                        return [
+                            { x: centerX - offset, y: centerY, r: radius, name: setA.name, color: setA.color },
+                            { x: centerX + offset, y: centerY, r: radius, name: setB.name, color: setB.color }
+                        ];
+                    }
+                }
+
+                // Default Venn diagram or Euler with partial overlap
+                const offset = radius * 0.7;
+                return [
+                    { x: centerX - offset, y: centerY, r: radius, name: setA.name, color: setA.color },
+                    { x: centerX + offset, y: centerY, r: radius, name: setB.name, color: setB.color }
+                ];
+            } else if (state.sets.length === 3) {
+                if (state.diagramType === 'euler') {
+                    return calculateEulerThreeSetPositions(centerX, centerY, radius);
+                } else {
+                    const offset = radius * 0.7;
+                    return [
+                        { x: centerX - offset, y: centerY - offset * 0.5, r: radius, name: state.sets[0].name, color: state.sets[0].color },
+                        { x: centerX + offset, y: centerY - offset * 0.5, r: radius, name: state.sets[1].name, color: state.sets[1].color },
+                        { x: centerX, y: centerY + offset * 0.7, r: radius, name: state.sets[2].name, color: state.sets[2].color }
+                    ];
+                }
+            } else if (state.sets.length === 4) {
+                if (state.diagramType === 'euler') {
+                    return calculateEulerFourSetPositions(centerX, centerY, radius);
+                } else {
+                    const offset = radius * 0.6;
+                    return [
+                        { x: centerX - offset, y: centerY - offset, r: radius, name: state.sets[0].name, color: state.sets[0].color },
+                        { x: centerX + offset, y: centerY - offset, r: radius, name: state.sets[1].name, color: state.sets[1].color },
+                        { x: centerX - offset, y: centerY + offset, r: radius, name: state.sets[2].name, color: state.sets[2].color },
+                        { x: centerX + offset, y: centerY + offset, r: radius, name: state.sets[3].name, color: state.sets[3].color }
+                    ];
+                }
+            }
+        }
+
+        function calculateEulerThreeSetPositions(centerX, centerY, radius) {
+            const sets = state.sets;
+            const ab = setsIntersect(sets[0], sets[1]);
+            const ac = setsIntersect(sets[0], sets[2]);
+            const bc = setsIntersect(sets[1], sets[2]);
+
+            // If no intersections at all, arrange in a line
+            if (!ab && !ac && !bc) {
+                return [
+                    { x: centerX - radius * 2.5, y: centerY, r: radius, name: sets[0].name, color: sets[0].color },
+                    { x: centerX, y: centerY, r: radius, name: sets[1].name, color: sets[1].color },
+                    { x: centerX + radius * 2.5, y: centerY, r: radius, name: sets[2].name, color: sets[2].color }
+                ];
+            }
+
+            // Use standard Venn layout if there are intersections (simplified for now)
+            const offset = radius * 0.7;
+            return [
+                { x: centerX - offset, y: centerY - offset * 0.5, r: radius, name: sets[0].name, color: sets[0].color },
+                { x: centerX + offset, y: centerY - offset * 0.5, r: radius, name: sets[1].name, color: sets[1].color },
+                { x: centerX, y: centerY + offset * 0.7, r: radius, name: sets[2].name, color: sets[2].color }
+            ];
+        }
+
+        function calculateEulerFourSetPositions(centerX, centerY, radius) {
+            const sets = state.sets;
+
+            // Check all pairwise intersections
+            const ab = setsIntersect(sets[0], sets[1]);
+            const ac = setsIntersect(sets[0], sets[2]);
+            const ad = setsIntersect(sets[0], sets[3]);
+            const bc = setsIntersect(sets[1], sets[2]);
+            const bd = setsIntersect(sets[1], sets[3]);
+            const cd = setsIntersect(sets[2], sets[3]);
+
+            // If no intersections at all, arrange in a 2x2 grid with separation
+            if (!ab && !ac && !ad && !bc && !bd && !cd) {
+                const offset = radius * 2.5;
+                return [
+                    { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
+                    { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
+                    { x: centerX - offset, y: centerY + offset, r: radius, name: sets[2].name, color: sets[2].color },
+                    { x: centerX + offset, y: centerY + offset, r: radius, name: sets[3].name, color: sets[3].color }
+                ];
+            }
+
+            // Check for subset relationships - if any set is a subset of another, handle specially
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 4; j++) {
+                    if (i !== j && isSubset(sets[i], sets[j])) {
+                        // Found a subset relationship, fall back to Venn for now
+                        // (Full implementation would nest the circles properly)
+                        const offset = radius * 0.6;
+                        return [
+                            { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
+                            { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
+                            { x: centerX - offset, y: centerY + offset, r: radius, name: sets[2].name, color: sets[2].color },
+                            { x: centerX + offset, y: centerY + offset, r: radius, name: sets[3].name, color: sets[3].color }
+                        ];
+                    }
+                }
+            }
+
+            // Use standard Venn layout for partial overlaps
+            const offset = radius * 0.6;
+            return [
+                { x: centerX - offset, y: centerY - offset, r: radius, name: sets[0].name, color: sets[0].color },
+                { x: centerX + offset, y: centerY - offset, r: radius, name: sets[1].name, color: sets[1].color },
+                { x: centerX - offset, y: centerY + offset, r: radius, name: sets[2].name, color: sets[2].color },
+                { x: centerX + offset, y: centerY + offset, r: radius, name: sets[3].name, color: sets[3].color }
+            ];
+        }
+
+        function drawTwoSetElements(circles) {
+            const setA = state.sets[0];
+            const setB = state.sets[1];
+
+            // Check if circles are nested (same center, different radii)
+            const isNested = circles[0].x === circles[1].x &&
+                            circles[0].y === circles[1].y &&
+                            circles[0].r !== circles[1].r;
+
+            if (isNested) {
+                // Nested circles - one set is subset of another
+                const outerCircle = circles[0].r > circles[1].r ? circles[0] : circles[1];
+                const innerCircle = circles[0].r > circles[1].r ? circles[1] : circles[0];
+                const outerSet = circles[0].r > circles[1].r ? setA : setB;
+                const innerSet = circles[0].r > circles[1].r ? setB : setA;
+
+                // Elements only in outer set (the ring)
+                const outerOnly = [...outerSet.elements].filter(x => !innerSet.elements.has(x));
+                const ringRadius = (outerCircle.r + innerCircle.r) / 2;
+                drawElementList(outerOnly, outerCircle.x, outerCircle.y - ringRadius * 0.5);
+
+                // All elements of inner set (it's completely inside outer)
+                drawElementList([...innerSet.elements], innerCircle.x, innerCircle.y);
+            } else {
+                // Side-by-side circles (standard Venn)
+                // A only
+                const aOnly = [...setA.elements].filter(x => !setB.elements.has(x));
+                drawElementList(aOnly, circles[0].x - circles[0].r * 0.4, circles[0].y);
+
+                // A ∩ B
+                const intersection = [...setA.elements].filter(x => setB.elements.has(x));
+                drawElementList(intersection, (circles[0].x + circles[1].x) / 2, (circles[0].y + circles[1].y) / 2);
+
+                // B only
+                const bOnly = [...setB.elements].filter(x => !setA.elements.has(x));
+                drawElementList(bOnly, circles[1].x + circles[1].r * 0.4, circles[1].y);
+            }
+        }
+
+        function drawThreeSetElements(circles) {
+            const setA = state.sets[0];
+            const setB = state.sets[1];
+            const setC = state.sets[2];
+
+            // A only
+            const aOnly = [...setA.elements].filter(x => !setB.elements.has(x) && !setC.elements.has(x));
+            drawElementList(aOnly, circles[0].x - circles[0].r * 0.5, circles[0].y - circles[0].r * 0.3);
+
+            // B only
+            const bOnly = [...setB.elements].filter(x => !setA.elements.has(x) && !setC.elements.has(x));
+            drawElementList(bOnly, circles[1].x + circles[1].r * 0.5, circles[1].y - circles[1].r * 0.3);
+
+            // C only
+            const cOnly = [...setC.elements].filter(x => !setA.elements.has(x) && !setB.elements.has(x));
+            drawElementList(cOnly, circles[2].x, circles[2].y + circles[2].r * 0.5);
+
+            // A ∩ B only
+            const abOnly = [...setA.elements].filter(x => setB.elements.has(x) && !setC.elements.has(x));
+            drawElementList(abOnly, (circles[0].x + circles[1].x) / 2, (circles[0].y + circles[1].y) / 2 - circles[0].r * 0.3);
+
+            // A ∩ C only
+            const acOnly = [...setA.elements].filter(x => setC.elements.has(x) && !setB.elements.has(x));
+            drawElementList(acOnly, (circles[0].x + circles[2].x) / 2 - circles[0].r * 0.2, (circles[0].y + circles[2].y) / 2);
+
+            // B ∩ C only
+            const bcOnly = [...setB.elements].filter(x => setC.elements.has(x) && !setA.elements.has(x));
+            drawElementList(bcOnly, (circles[1].x + circles[2].x) / 2 + circles[1].r * 0.2, (circles[1].y + circles[2].y) / 2);
+
+            // A ∩ B ∩ C
+            const abc = [...setA.elements].filter(x => setB.elements.has(x) && setC.elements.has(x));
+            drawElementList(abc, (circles[0].x + circles[1].x + circles[2].x) / 3, (circles[0].y + circles[1].y + circles[2].y) / 3);
+        }
+
+        function drawElementList(elements, x, y) {
+            let text;
+            if (elements.length === 0) {
+                text = '∅';
+            } else if (elements.length <= 5) {
+                text = elements.join(', ');
+            } else {
+                text = `${elements.length} elem`;
+            }
+
+            ctx.fillStyle = '#374151';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, x, y);
+        }
+
+
+        // Mouse interaction
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const circles = calculateCirclePositions();
+            const insideSets = [];
+
+            circles.forEach((circle, idx) => {
+                const dx = x - circle.x;
+                const dy = y - circle.y;
+                if (dx * dx + dy * dy <= circle.r * circle.r) {
+                    insideSets.push(idx);
+                }
+            });
+
+            if (insideSets.length > 0) {
+                const region = calculateRegionInfo(insideSets);
+                state.hoveredRegion = { sets: insideSets, ...region };
+
+                // Set content and make visible first
+                tooltip.textContent = `${region.description}\n${region.elementsText}`;
+                tooltip.classList.add('visible');
+
+                // Smart positioning with viewport awareness
+                const tooltipRect = tooltip.getBoundingClientRect();
+                const offset = 8;
+                const padding = 10;
+
+                // Use canvas-relative coordinates, then convert to viewport
+                let left = rect.left + x + offset;
+                let top = rect.top + y + offset;
+
+                // Check boundaries and flip if needed
+                if (left + tooltipRect.width + padding > window.innerWidth) {
+                    left = rect.left + x - tooltipRect.width - offset;
+                }
+                if (top + tooltipRect.height + padding > window.innerHeight) {
+                    top = rect.top + y - tooltipRect.height - offset;
+                }
+
+                // Clamp to viewport to ensure always visible
+                left = Math.max(padding, Math.min(left, window.innerWidth - tooltipRect.width - padding));
+                top = Math.max(padding, Math.min(top, window.innerHeight - tooltipRect.height - padding));
+
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+            } else {
+                state.hoveredRegion = null;
+                tooltip.classList.remove('visible');
+            }
+
+            drawVennDiagram();
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            state.hoveredRegion = null;
+            tooltip.classList.remove('visible');
+            drawVennDiagram();
+        });
+
+        function calculateRegionInfo(insideSets) {
+            // Get all elements that are in all the inside sets
+            let elements = new Set(state.sets[insideSets[0]].elements);
+            for (let i = 1; i < insideSets.length; i++) {
+                elements = new Set([...elements].filter(x => state.sets[insideSets[i]].elements.has(x)));
+            }
+
+            // Remove elements that are in sets we're NOT inside
+            for (let i = 0; i < state.sets.length; i++) {
+                if (!insideSets.includes(i)) {
+                    elements = new Set([...elements].filter(x => !state.sets[i].elements.has(x)));
+                }
+            }
+
+            const elementsArray = Array.from(elements);
+            const elementsText = elementsArray.length === 0 ? '∅ (empty)' :
+                                 elementsArray.length <= 5 ? `{${elementsArray.join(', ')}}` :
+                                 `${elementsArray.length} elements`;
+
+            let description;
+            if (insideSets.length === 1) {
+                description = state.sets.length > 1 ? `${state.sets[insideSets[0]].name} ${translations[currentLang].only}` : state.sets[insideSets[0]].name;
+            } else {
+                description = insideSets.map(i => state.sets[i].name).join(' ∩ ');
+            }
+
+            return { description, elementsText };
+        }
+
+        // Initialize language on page load
+        setLanguage(currentLang);
+    </script>
+</body>
+</html>
