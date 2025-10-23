@@ -1446,14 +1446,6 @@
             } else if (state.sets.length === 3) {
                 drawThreeSetElements(circles);
             }
-
-            // Draw result if exists
-            if (state.resultElements) {
-                ctx.fillStyle = '#6366f1';
-                ctx.font = '16px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(state.resultDescription, canvas.width / 2, canvas.height - 40);
-            }
         }
 
         // Check if two sets have any intersection
